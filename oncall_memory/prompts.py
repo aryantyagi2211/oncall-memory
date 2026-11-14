@@ -60,7 +60,7 @@ def compress_reflection(
                 "150 words or fewer, using exactly:\n"
                 "Diagnosis: one or two lines\n"
                 "Matched past incident: INC-xxx — <one line explaining symptom/root-cause match>\n"
-                "Fix that worked before: <the exact fix text from that incident>\n"
+                "Fix that worked before: <copy the recorded fix verbatim, preserving its numbers and identifiers>\n"
                 "Next 3 steps:\n- <step>\n- <step>\n- <step>\n\n"
                 "If none truly matches, use exactly: 'Matched past incident: No closely "
                 "matching past incident. Closest: INC-xxx (why it differs).' In that case "

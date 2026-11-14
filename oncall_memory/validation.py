@@ -1,7 +1,101 @@
 import logging
 import re
+import unicodedata
+from collections import Counter
 from .config import FEEDBACK_OUTCOME_FAILED
 logger = logging.getLogger(__name__)
+
+_ACTION_VERBS = {
+    "add", "allow", "apply", "block", "bypass", "cap", "change", "check", "clear",
+    "configure", "confirm", "create", "delete", "deploy", "disable", "drain", "enable", "flush", "force",
+    "increase", "install", "inspect",
+    "lower", "migrate", "monitor", "move", "rebuild", "recycle", "reduce", "remove",
+    "reconnect", "recreate", "replace", "reset", "restart", "restore", "retry", "roll",
+    "perform", "purge", "refresh", "reroute", "rollback", "rotate", "run", "scale", "set",
+    "start", "stop", "switch", "test", "turn", "update", "upgrade", "use", "validate", "verify", "wait",
+}
+_DURATION_RE = re.compile(
+    r"(?<![a-z0-9])(\d+(?:\.\d+)?)\s*(milliseconds?|msecs?|ms|seconds?|secs?|s|minutes?|mins?|min|m|hours?|hrs?|h|days?|d)(?![a-z])",
+    re.IGNORECASE,
+)
+_IP_RE = re.compile(r"\b(?:\d{1,3}\.){3}\d{1,3}\b")
+_PORT_RE = re.compile(r"\b(?:port|tcp|udp)\s*[:/#-]?\s*(\d{1,5})\b", re.IGNORECASE)
+_IDENTIFIER_RE = re.compile(r"\b[A-Za-z][A-Za-z0-9]*(?:[-_.][A-Za-z0-9]+)+\b|\b[A-Za-z][A-Za-z_-]*\d+[A-Za-z0-9_-]*\b")
+
+
+def _normalize_fix_text(value: str) -> str:
+    """Normalize case, quotes, whitespace, and punctuation for fix comparison."""
+    normalized = unicodedata.normalize("NFKC", value).casefold()
+    normalized = re.sub(r"[\u2018\u2019\u201c\u201d\u0060\u00b4]", "", normalized)
+    normalized = re.sub(r"[^\w\s]|_", " ", normalized)
+    return " ".join(normalized.split())
+
+
+def _fix_value_signatures(value: str) -> dict[str, Counter[str]]:
+    """Extract numeric values and technical identifiers that must not be invented."""
+    text = unicodedata.normalize("NFKC", value).casefold()
+    durations = Counter()
+    for match in _DURATION_RE.finditer(text):
+        amount = match.group(1)
+        unit = match.group(2).lower()
+        if unit in {"ms", "msec", "millisecond", "milliseconds"}:
+            canonical_unit = "ms"
+        elif unit in {"s", "sec", "secs", "second", "seconds"}:
+            canonical_unit = "s"
+        elif unit in {"m", "min", "mins", "minute", "minutes"}:
+            canonical_unit = "min"
+        elif unit in {"h", "hr", "hrs", "hour", "hours"}:
+            canonical_unit = "h"
+        else:
+            canonical_unit = "d"
+        durations[f"{amount}{canonical_unit}"] += 1
+    numbers = Counter(re.findall(r"\d+(?:\.\d+)?", text))
+    ips = Counter(_IP_RE.findall(text))
+    ports = Counter(_PORT_RE.findall(text))
+    identifiers = Counter(match.group(0).casefold() for match in _IDENTIFIER_RE.finditer(text))
+    return {"numbers": numbers, "durations": durations, "ips": ips, "ports": ports, "identifiers": identifiers}
+
+
+def _unsupported_fix_details(recalled_fix: str, answer_fix: str) -> list[str]:
+    """Return reasons an answer adds numeric facts, identifiers, or remediation steps."""
+    source_values = _fix_value_signatures(recalled_fix)
+    answer_values = _fix_value_signatures(answer_fix)
+    labels = {"numbers": "numbers/counts", "durations": "durations", "ips": "IP addresses",
+              "ports": "ports", "identifiers": "identifiers"}
+    reasons = []
+    for key, label in labels.items():
+        extras = answer_values[key] - source_values[key]
+        if extras:
+            reasons.append(f"fix adds unsupported {label}: {', '.join(sorted(extras.elements()))}")
+
+    source_tokens = Counter(_normalize_fix_text(recalled_fix).split())
+    answer_tokens = Counter(_normalize_fix_text(answer_fix).split())
+    added_actions = sorted((answer_tokens - source_tokens).keys() & _ACTION_VERBS)
+    if added_actions:
+        reasons.append("fix adds an unsupported remediation step/action: " + ", ".join(added_actions))
+    return reasons
+
+
+def _fix_fidelity_reasons(recalled_fix: str, answer_fix: str) -> list[str]:
+    """Check that a formatted fix preserves the recorded actions and values."""
+    normalized_source = _normalize_fix_text(recalled_fix)
+    normalized_answer = _normalize_fix_text(answer_fix)
+    if not normalized_source or not normalized_answer:
+        return ["fix text is empty"]
+
+    unsupported = _unsupported_fix_details(recalled_fix, answer_fix)
+    if unsupported:
+        return unsupported
+    if normalized_source in normalized_answer:
+        return []
+
+    source_tokens = Counter(normalized_source.split())
+    answer_tokens = Counter(normalized_answer.split())
+    source_count = sum(source_tokens.values())
+    containment = sum((source_tokens & answer_tokens).values()) / source_count if source_count else 0.0
+    if containment >= 0.85:
+        return []
+    return [f"fix differs from the recalled fix (token containment {containment:.2f}; requires 0.85)"]
 
 def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]], failed_ids: set[str] | None = None) -> str:
     if not memories:
@@ -107,8 +201,7 @@ def memory_answer_validation_reasons(
         if superseded_selection:
             reasons.append("cited incident is superseded")
         if selected:
-            if fix_text != selected.get("fix", "").strip():
-                reasons.append("fix text does not exactly match the recalled fix")
+            reasons.extend(_fix_fidelity_reasons(selected.get("fix", ""), fix_text))
     unsupported_ids = cited_ids - allowed_ids
     if unsupported_ids:
         reasons.append("unsupported incident IDs: " + ", ".join(sorted(unsupported_ids)))

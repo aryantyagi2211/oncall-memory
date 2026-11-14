@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import core
 import oncall_memory.diagnose as diagnose_module
 import oncall_memory.memory as memory_module
+from oncall_memory.validation import memory_answer_validation_reasons
 
 
 def test_extraction_prefers_metadata():
@@ -41,6 +42,51 @@ def test_validator_rejects_fix_not_from_cited_incident():
     answer = "Matched past incident: INC-001 — same pool issue\nFix that worked before: restart everything"
     checked = core.validate_memory_answer(answer, memories, "connection pool full exhausted")
     assert "Fix that worked before: cap pool" in checked
+
+
+def _answer_with_fix(fix):
+    return (
+        "Matched past incident: INC-901 — same symptoms and cause\n"
+        f"Fix that worked before: {fix}"
+    )
+
+
+def test_validator_accepts_reformatted_but_faithful_fix():
+    recorded_fix = "Reduce DNS cache TTL from 300s to 15s; restart all 12 auth workers."
+    answer = _answer_with_fix("“REDUCE   DNS cache TTL FROM 300s to 15s; restart all 12 auth workers.”")
+    memories = [{**_memory("INC-901", recorded_fix), "text": recorded_fix}]
+    assert memory_answer_validation_reasons(answer, memories) == []
+    assert core.validate_memory_answer(answer, memories) == answer
+
+
+def test_validator_rejects_changed_number_in_fix():
+    recorded_fix = "Reduce DNS cache TTL from 300s to 15s; restart all 12 auth workers."
+    answer = _answer_with_fix("Reduce DNS cache TTL from 30s to 15s; restart all 12 auth workers.")
+    memories = [{**_memory("INC-901", recorded_fix), "text": recorded_fix}]
+    reasons = memory_answer_validation_reasons(answer, memories)
+    assert any("unsupported durations" in reason for reason in reasons)
+    checked = core.validate_memory_answer(answer, memories, "payments DNS cache TTL auth workers")
+    assert "Fix that worked before: " + recorded_fix in checked
+    assert "30s" not in checked
+
+
+def test_validator_rejects_invented_extra_fix_step():
+    recorded_fix = "Reduce DNS cache TTL from 300s to 15s; restart all 12 auth workers."
+    answer = _answer_with_fix(recorded_fix + " Then rotate database credentials.")
+    memories = [{**_memory("INC-901", recorded_fix), "text": recorded_fix}]
+    reasons = memory_answer_validation_reasons(answer, memories)
+    assert any("unsupported remediation step/action" in reason for reason in reasons)
+    checked = core.validate_memory_answer(answer, memories, "payments DNS cache TTL auth workers")
+    assert "Fix that worked before: " + recorded_fix in checked
+    assert "rotate database credentials" not in checked
+
+
+def test_validator_still_accepts_unchanged_exact_fix():
+    recorded_fix = "Reduce DNS cache TTL from 300s to 15s; restart all 12 auth workers."
+    answer = _answer_with_fix(recorded_fix)
+    memories = [_memory("INC-901", recorded_fix)]
+    assert memory_answer_validation_reasons(answer, memories) == []
+    assert core.validate_memory_answer(answer, memories) == answer
 
 
 def test_empty_recall_never_claims_relevant_history(monkeypatch):
