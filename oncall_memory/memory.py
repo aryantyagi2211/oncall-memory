@@ -33,9 +33,9 @@ def recall_incidents(
     reflection_text = memory_text(reflection)
     return deduplicate_incidents(facts), facts, reflection_text
 
-def _recall_with_timeout(client: Hindsight, incident: str, bank_id: str):
+def _recall_with_timeout(client: Hindsight, incident: str, bank_id: str, limit: int = 5):
     def call():
-        recalled = client.recall(bank_id=bank_id, query=incident)
+        recalled = client.recall(bank_id=bank_id, query=incident, limit=limit)
         items = [item for item in memory_field(recalled, "results", []) if memory_text(item)]
         feedback = [record for item in items if (record := parse_feedback(item))]
         facts = [
@@ -44,7 +44,7 @@ def _recall_with_timeout(client: Hindsight, incident: str, bank_id: str):
             if memory_text(item) and not parse_feedback(item)
         ]
         reflection = client.reflect(bank_id=bank_id, query=incident)
-        return deduplicate_incidents(facts), facts, memory_text(reflection), feedback
+        return deduplicate_incidents(facts, limit=limit), facts, memory_text(reflection), feedback
 
     last_error = None
     for attempt in range(HINDSIGHT_RETRIES + 1):

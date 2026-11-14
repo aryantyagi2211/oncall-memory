@@ -3,7 +3,7 @@ import re
 from .config import FEEDBACK_OUTCOME_FAILED
 logger = logging.getLogger(__name__)
 
-def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]]) -> str:
+def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]], failed_ids: set[str] | None = None) -> str:
     if not memories:
         return (
             "Diagnosis: No recalled incident is available to compare with this alert.\n"
@@ -17,6 +17,8 @@ def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]]) 
     alert_terms = set(re.findall(r"[a-z0-9]+", incident_text.lower()))
     ranked = []
     for memory in memories:
+        if memory.get("id") in (failed_ids or set()):
+            continue
         source = " ".join((memory.get("service", ""), memory.get("root_cause", ""), memory.get("text", "")))
         terms = set(re.findall(r"[a-z0-9]+", source.lower()))
         overlap = len(alert_terms & terms)
@@ -27,6 +29,15 @@ def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]]) 
                 overlap += 5
         ranked.append((overlap, memory))
     ranked.sort(key=lambda pair: pair[0], reverse=True)
+    if not ranked:
+        return (
+            "Diagnosis: Every recalled incident fix with feedback was marked as unsuccessful. No remaining recalled fix can be recommended.\n"
+            "Matched past incident: No closely matching past incident; all recalled candidates have failed fixes.\n"
+            "Fix that worked before: No proven fix for this alert.\n"
+            "Next 3 steps:\n- Recheck the current symptoms and affected dependency.\n"
+            "- Investigate a new mitigation using the service runbook.\n"
+            "- Verify recovery before recording another outcome."
+        )
     score, best = ranked[0]
     incident_id = best.get("id") or ""
     root = best.get("root_cause", "")
@@ -62,21 +73,50 @@ def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident
     no_match = "No closely matching past incident." in match_text
     match_id = re.search(r"\bINC-\d{3,}\b", match_text)
     selected = next((m for m in memories if match_id and m.get("id") == match_id.group(0)), None)
+    failed_records = [record for record in (feedback or []) if record.get("outcome") == FEEDBACK_OUTCOME_FAILED]
+    failed_ids = {incident_id for record in failed_records for incident_id in record.get("matched_incident_ids", [])}
     valid = bool(matched_line and fix_line and not re.search(r"Relevant recalled history is available|placeholder|<ID>|<exact fix>", answer, re.I))
     if no_match:
         valid = valid and bool(selected) and fix_text == "No proven fix for this alert."
     else:
-        valid = valid and bool(selected and selected.get("root_cause") and selected.get("fix"))
+        valid = valid and bool(selected and selected.get("root_cause") and selected.get("fix") and selected.get("id") not in failed_ids)
         if selected:
             valid = valid and fix_text == selected.get("fix", "").strip()
     valid = valid and not (cited_ids - allowed_ids)
     if not valid:
         logger.warning("Memory answer failed source validation; using recalled-data template.")
-        answer = _memory_answer_fallback(incident_text, memories)
-    failed_fixes = [item.get("fix", "").strip() for item in (feedback or []) if item.get("outcome") == "did not work" and item.get("fix")]
-    for failed_fix in failed_fixes:
-        if failed_fix.lower() in answer.lower():
-            answer = re.sub(r"(?im)^Fix that worked before:.*$", "Fix that worked before: No proven fix for this alert.", answer)
-        if f"Previously failed: {failed_fix}" not in answer:
-            answer += f"\nPreviously failed: {failed_fix}"
+        answer = _memory_answer_fallback(incident_text, memories, failed_ids)
+    # Remove ungrounded model-generated failure claims; only recalled feedback may create notices.
+    answer = re.sub(r"(?im)^.*was marked ['\"]Didn't work['\"].*$\n?", "", answer)
+    selected_id = re.search(r"(?im)^Matched past incident:\s*(INC-\d{3,})\b", answer)
+    failed_record = next((record for record in failed_records if any(i in {m.get("id") for m in memories} for i in record.get("matched_incident_ids", []))), None)
+    if failed_record and selected_id and selected_id.group(1) not in failed_ids:
+        failed_id = failed_record.get("matched_incident_ids", [""])[0]
+        short_fix = failed_record.get("fix", "").strip()[:100]
+        notice = (f"{failed_id} fix ({short_fix}) was marked 'Didn't work' on "
+                  f"{failed_record.get('date', 'date unavailable')}. Note: {failed_record.get('note', 'none')}. "
+                  f"Trying {selected_id.group(1)} instead.")
+        answer += f"\n{notice}"
+    elif failed_records:
+        record = failed_records[0]
+        failed_id = next(iter(record.get("matched_incident_ids", [])), "")
+        if failed_id:
+            answer += (f"\n{failed_id} fix ({record.get('fix', '')[:100]}) was marked 'Didn't work' on "
+                       f"{record.get('date', 'date unavailable')}. Note: {record.get('note', 'none')}. "
+                       "No remaining recalled incident is available to try.")
+    return answer
+
+
+def validate_memory_question_answer(answer: str, memories: list[dict[str, str]]) -> str:
+    """Reject Ask-the-Memory answers with unsupported or missing incident citations."""
+    allowed_ids = {memory.get("id") for memory in memories if memory.get("id")}
+    cited_ids = set(re.findall(r"\bINC-\d{3,}\b", answer))
+    if not memories:
+        return "No relevant history was recalled for this question."
+    if cited_ids - allowed_ids:
+        logger.warning("Memory question answer cited IDs absent from recall results: %s", sorted(cited_ids - allowed_ids))
+        return "I can't support that answer: it cited incident IDs that were not in the recalled facts."
+    if not cited_ids:
+        citations = ", ".join(sorted(allowed_ids))
+        return f"The recalled records do not support a specific answer. Relevant incident IDs: {citations}."
     return answer

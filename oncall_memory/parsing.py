@@ -103,12 +103,55 @@ def parse_feedback(item: Any) -> dict[str, str] | None:
     outcome = re.search(r"(?im)^Outcome:\s*(worked|did not work)\s*$", text)
     if not outcome:
         return None
+    metadata = memory_field(item, "metadata", {}) or {}
+    stamp = memory_field(item, "timestamp", "") or (metadata.get("timestamp", "") if isinstance(metadata, dict) else "")
+    date_match = re.search(r"20\d{2}-\d{2}-\d{2}", str(stamp)) or re.search(r"(?im)^Date:\s*(20\d{2}-\d{2}-\d{2})", text)
+    note_match = re.search(r"(?im)^Note:\s*(.*)$", text)
     return {
         "text": text,
         "outcome": outcome.group(1).lower(),
         "fix": (re.search(r"(?im)^Suggested fix:\s*(.+)$", text) or [None, ""])[1].strip(),
         "incident_id": (re.search(r"(?im)^Cited incident:\s*(INC-\d{3,}|none)\s*$", text) or [None, "none"])[1],
+        "date": date_match.group(0) if date_match else "date unavailable",
+        "note": note_match.group(1).strip() if note_match else "none",
     }
+
+
+def associate_feedback(memories: list[dict[str, str]], feedback: list[dict[str, str]]) -> list[dict[str, Any]]:
+    """Associate feedback with recalled incidents by cited ID or exact fix."""
+    associated = []
+    for record in feedback:
+        record_fix = " ".join(record.get("fix", "").lower().split())
+        ids = [memory["id"] for memory in memories if memory.get("id") == record.get("incident_id")]
+        if record_fix:
+            ids.extend(memory["id"] for memory in memories
+                       if " ".join(memory.get("fix", "").lower().split()) == record_fix)
+        ids = list(dict.fromkeys(ids))
+        if ids:
+            associated.append({**record, "matched_incident_ids": ids})
+    return associated
+
+
+def rank_feedback_candidates(memories: list[dict[str, str]], feedback: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Rank incidents by recall order adjusted for recorded Worked and failed feedback."""
+    worked = {memory.get("id"): 0 for memory in memories}
+    failed = {memory.get("id"): 0 for memory in memories}
+    for record in feedback:
+        counts = worked if record.get("outcome") == "worked" else failed if record.get("outcome") == "did not work" else None
+        if counts is not None:
+            for incident_id in record.get("matched_incident_ids", []):
+                if incident_id in counts:
+                    counts[incident_id] += 1
+    total = len(memories)
+    return sorted(
+        memories,
+        key=lambda memory: (
+            float(memory.get("recall_order", total - memories.index(memory)))
+            + worked.get(memory.get("id"), 0)
+            - failed.get(memory.get("id"), 0)
+        ),
+        reverse=True,
+    )
 
 def recalled_mttr_label(
     incident_id: str,

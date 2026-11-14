@@ -25,7 +25,7 @@ PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-20b"
 
 
-from core import (BANK_ID, HINDSIGHT_URL, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now)
+from core import (BANK_ID, HINDSIGHT_URL, ask_memory, associate_feedback, compute_recurring_insights, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 with open(os.path.join(DATA_DIR, "test_incidents.json"), encoding="utf-8") as test_file:
@@ -149,17 +149,33 @@ if diagnoses:
             )
             is_top = bool(valid_citation and diagnoses["memories"] and diagnoses["memories"][0]["id"] == cited_id)
             confidence = "High" if is_top else "Medium" if valid_citation else "Low"
+            associated_feedback = associate_feedback(diagnoses["memories"], diagnoses.get("feedback", []))
+            demoted = [record for record in associated_feedback if record.get("outcome") == "did not work"]
+            if valid_citation and any(record.get("outcome") == "worked" and cited_id in record.get("matched_incident_ids", []) for record in associated_feedback):
+                confidence = {"Low": "Medium", "Medium": "High", "High": "High"}[confidence]
             with st.container(border=True):
                 st.markdown(f"**Best match · {confidence} confidence**")
                 if valid_citation:
                     st.markdown(f"**{matched_memory['id']}** · {matched_memory['service'] or 'Service unavailable'}")
                     st.write(f"Root cause: {matched_memory['root_cause']}")
                     st.write(f"Fix: {matched_memory['fix']}")
+                    worked_count = sum(
+                        1 for record in associated_feedback
+                        if record.get("outcome") == "worked"
+                        and cited_id in record.get("matched_incident_ids", [])
+                    )
+                    if worked_count:
+                        st.caption(f"Confirmed to work {worked_count} times")
                     reason = re.search(r"(?im)^Matched past incident:\s*INC-\d{3,}\s*[—-]\s*(.+)$", diagnoses["contextual"] or "")
                     if reason:
                         st.caption(reason.group(1).strip())
                 else:
                     st.write("No valid incident citation or close match was found.")
+                if demoted:
+                    st.markdown("**Previously failed**")
+                    for record in demoted:
+                        for incident_id in record.get("matched_incident_ids", []):
+                            st.caption(f"{incident_id} · {record.get('fix') or 'fix unavailable'} · {record.get('date', 'date unavailable')}")
                 st.caption("Confidence is a heuristic based on citation validation and recall order.")
             if matched_memory:
                 date_label = matched_memory["date"] or "date unavailable"
@@ -220,6 +236,32 @@ else:
         "memory_enabled": memory_enabled,
         "memory_error": "",
     }
+
+st.subheader("Memory Insights")
+insights = compute_recurring_insights(diagnoses.get("memories", []))
+if insights:
+    count = insights["service_count"]
+    suffix = "th" if 10 <= count % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(count % 10, "th")
+    avg = insights["average_mttr_minutes"]
+    avg_label = f"{avg:.1f} min across {insights['mttr_sample_count']} records" if avg is not None else "not recorded"
+    with st.container(border=True):
+        st.markdown(f"**{count}{suffix} incident on {insights['service']} in memory**")
+        st.write(f"Most common cause: {insights['most_common_root_cause']}")
+        st.write(f"Average MTTR: {avg_label}")
+        st.caption(f"Counts are among {insights['recalled_count']} recalled incidents; statistics are computed from recalled fields.")
+elif diagnoses.get("memory_error"):
+    st.info(f"Recurring insights are unavailable: {diagnoses['memory_error']}")
+else:
+    st.caption("No recalled incident fields are available for recurring insights yet.")
+
+memory_question = st.text_input("Ask the Memory", key="memory_question", placeholder="What fixes worked for Redis connection issues?")
+if st.button("Ask", key="ask_memory"):
+    if not memory_question.strip():
+        st.info("Enter a question about past incidents.")
+    else:
+        with st.spinner("Recalling and reflecting on incident history..."):
+            memory_answer = ask_memory(memory_question.strip(), bank_id=BANK_ID)
+        st.write(memory_answer)
 
 with st.expander("Recalled memories", expanded=True):
     if diagnoses["memories"]:

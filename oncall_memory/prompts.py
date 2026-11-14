@@ -55,7 +55,8 @@ def compress_reflection(
             "role": "system",
             "content": (
                 "Answer the new alert by comparing symptoms and root cause against every "
-                "recalled incident. Pick the single best match, not the first result. Return "
+                "recalled incident. Pick the single best match; use recall relevance order, "
+                "and prefer an otherwise-equal incident with more Worked feedback. Return "
                 "150 words or fewer, using exactly:\n"
                 "Diagnosis: one or two lines\n"
                 "Matched past incident: INC-xxx — <one line explaining symptom/root-cause match>\n"
@@ -81,6 +82,23 @@ def compress_reflection(
         },
     ]
     return groq_completion(messages)
+
+
+def answer_memory_question(question: str, memories: list[dict[str, str]], reflection: str) -> str:
+    """Answer a memory question using only recalled records and cite incident IDs."""
+    context = build_memory_context(memories)
+    return groq_completion([
+        {
+            "role": "system",
+            "content": (
+                "Answer the user's question using only the recalled incident records and "
+                "Hindsight reflection below. Cite every factual claim with one or more exact "
+                "incident IDs from the records. Do not invent details. If the records do not "
+                "answer the question, say that clearly and cite the closest recalled IDs."
+            ),
+        },
+        {"role": "user", "content": f"QUESTION:\n{question}\n\nRECALLED INCIDENTS:\n{context}\n\nHINDSIGHT REFLECTION:\n{reflection or 'No reflection returned.'}"},
+    ])
 
 def no_memory_fallback(incident: str) -> str:
     """No memory fallback."""
