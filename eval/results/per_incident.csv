@@ -1,21 +1,21 @@
 test_id,mode,retrieved_ids,root_cause_correct,fix_score,judge_reason,error
-TEST-01,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-02,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-01,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-03,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-02,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-04,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-03,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-05,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-04,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-05,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-06,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-07,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-06,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-08,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-07,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-09,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-08,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-10,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-09,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
-TEST-10,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-01,OFF,,True,3,Root cause: Both statements attribute the 503s to exceeding Redis connection limits caused by an oversized per‑worker connection pool. | Fix: The answer addresses Redis limits but misses the specific fix of capping per‑worker pools and reducing workers.,
+TEST-02,OFF,,True,3,"Root cause: The answer correctly identifies that the app is still connecting to the old Redis instance due to stale DNS, matching the root cause. | Fix: The answer addresses DNS and client updates but omits flushing resolver state and recycling stale connections.",
+TEST-01,ON,"INC-016,INC-033,INC-038,INC-001,INC-017",True,1,"Root cause: Both identify the Redis connection pool exhaustion caused by too many connections. | Fix: The suggested fix increases the pool size instead of capping per‑worker usage, which does not align with the correct approach.",
+TEST-03,OFF,,True,3,"Root cause: Both state that the inline enrichment (tax lookup) blocks the poll loop, exceeding max.poll.interval.ms. | Fix: The answer suggests async lookup and timeout, but misses the key fix of offloading enrichment to a bounded worker queue and reducing batch size.",
+TEST-02,ON,"INC-033,INC-016,INC-002,INC-001,INC-017",True,5,"Root cause: Both statements attribute the issue to workers holding a stale DNS entry for the retired primary after failover. | Fix: The answer includes all correct actions (flush resolver state, recycle stale connections/workers, lower DNS cache TTL) and adds useful verification steps.",
+TEST-04,OFF,,True,5,Root cause: The answer correctly identifies the deadlock caused by opposite lock acquisition order. | Fix: The answer fully matches the correct fix by recommending lock order standardization and bounded retries.,
+TEST-03,ON,"INC-003,INC-037,INC-011,INC-030,INC-032",True,3,"Root cause: Both state that the synchronous enrichment blocks polling past max.poll.interval.ms. | Fix: The suggestion improves poll interval and worker count but does not implement a bounded queue or batch size reduction, so it only partially addresses the root cause.",
+TEST-05,OFF,,True,5,Root cause: The answer correctly identifies the CPU‑bound issue caused by excessive KEYS commands during the cleanup scan. | Fix: The answer correctly identifies KEYS as the culprit and proposes the same rate‑limited SCAN solution.,
+TEST-04,ON,"INC-035,INC-026,INC-024,INC-040,INC-004",True,5,Root cause: Both statements identify the same issue of opposite lock ordering on the same rows. | Fix: The answer fully matches the correct fix by standardizing lock ordering and adding bounded retries.,
+TEST-06,OFF,,True,5,"Root cause: The answer correctly identifies the missing composite index as the root cause, matching the stated correct root cause. | Fix: The answer fully matches the correct fix, proposing the same composite index creation, plan verification, and monitoring steps.",
+TEST-05,ON,"INC-006,INC-019,INC-027,INC-021,INC-015",True,5,Root cause: Both state that the issue was caused by a cleanup using KEYS against the full production keyspace. | Fix: The proposed fix matches the correct fix exactly.,
+TEST-07,OFF,,True,3,Root cause: Both state the log‑agent’s memory leak is causing node pressure and pod evictions. | Fix: The answer suggests rollback and monitoring but omits draining nodes and explicit alert setup.,
+TEST-06,ON,"INC-014,INC-037,INC-039,INC-025,INC-031",True,5,Root cause: The answer correctly identifies the dropped composite index as the root cause. | Fix: The proposed fix exactly matches the correct solution.,
+TEST-08,OFF,,True,3,Root cause: Both state that the failure is due to an audience claim mismatch. | Fix: The answer addresses audience mismatch but omits restoring the production audience config and separate issuer/signature validation.,
+TEST-07,ON,"INC-005,INC-021,INC-034,INC-016,INC-028",False,1,"Root cause: The answer cites a thumbnail metadata cache issue, while the correct root cause is a node log agent memory leak. | Fix: The proposed steps target cache eviction and pod rollout, not the log‑agent rollback and node‑level memory alerts required by the correct fix.",
+TEST-09,OFF,,True,5,"Root cause: Both statements identify the same issue of IPv6 resolution with an IPv4‑only listener. | Fix: The proposed steps directly address aligning IPv4/IPv6 usage and suggest adding a dual‑stack listener, matching the correct fix.",
+TEST-08,ON,"INC-010,INC-029,INC-028,INC-015,INC-005",True,5,"Root cause: Both identify an audience claim mismatch as the root cause. | Fix: The proposed steps directly address restoring the correct audience configuration, validating claims, and updating the verifier, matching the correct fix.",
+TEST-10,OFF,,True,3,"Root cause: Both state that the image update caused the container’s timezone to shift from UTC to a daylight‑offset local timezone, leading to delayed jobs. | Fix: The answer covers timezone verification and adjustment but omits explicit UTC setting and timezone‑aware scheduling.",
+TEST-09,ON,"INC-033,INC-032,INC-016,INC-017,INC-022",False,1,"Root cause: The answer cites slow webhook delivery, while the correct root cause is an IPv6/IPv4 mismatch. | Fix: The proposed fix addresses webhook delivery issues, not the address family alignment needed for the correct solution.",
+TEST-10,ON,"INC-027,INC-036,INC-006,INC-013,INC-028",True,3,Root cause: Both state that the image update caused a timezone shift leading to a one‑hour delay. | Fix: It suggests setting TZ=UTC but omits timezone‑aware scheduling and next‑run verification.,

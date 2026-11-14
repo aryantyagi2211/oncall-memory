@@ -5,526 +5,403 @@
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: The checkout\u2011API is hitting Redis connection limits, causing client pool exhaustion and resulting in 503 responses under high flash\u2011sale traffic.  \n\nNext 3 steps:\n- Verify current Redis maxclients setting and active connection count during the spike.  \n- Mitigate by increasing Redis `maxclients` or adding a connection pool/replica to spread load, and adjust the API\u2019s pool size accordingly.  \n- Follow up with load testing to confirm latency improves and monitor Redis connection metrics post\u2011change.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 8.915,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 3,
+      "judge_reason": "Root cause: Both statements attribute the 503s to exceeding Redis connection limits caused by an oversized per\u2011worker connection pool. | Fix: The answer addresses Redis limits but misses the specific fix of capping per\u2011worker pools and reducing workers.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.538,
+      "errors": []
     },
     {
       "test_id": "TEST-02",
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: The application is still trying to connect to the old Redis instance after a promotion, resulting in connection\u2011refused errors and request timeouts.\n\nNext 3 steps:\n- Verify that DNS/endpoint configuration points to the new primary (10.4.8.12) and that the old address is no longer cached.\n- Mitigate by updating the Redis client connection string or load balancer to the new primary and restart affected services if needed.\n- Follow up by monitoring authentication request latency and confirming successful connections for a period, and document the failover procedure.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 8.515,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 3,
+      "judge_reason": "Root cause: The answer correctly identifies that the app is still connecting to the old Redis instance due to stale DNS, matching the root cause. | Fix: The answer addresses DNS and client updates but omits flushing resolver state and recycling stale connections.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.339,
+      "errors": []
     },
     {
       "test_id": "TEST-01",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 21.103,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: Redis connection pool exhaustion causing 503 errors and `max number of clients reached` during flash\u2011sale spikes.  \n\nMatched past incident: INC-016 \u2014 identical symptom of connection\u2011pool limit breach under doubled checkout concurrency.  \n\nFix that worked before: Raised the pool cap to 160, bounded per-request fanout, and verified active clients returned below 70% capacity.  \n\nNext 3 steps:\n- Confirm that the Redis client pool size is set to 160 in all checkout\u2011api instances and redeploy if needed. [INC-016]  \n- Add a metric alert for Redis client usage\u202f>\u202f70% of capacity and test under load to ensure headroom. [INC-016]  \n- Review and enforce per\u2011request fanout limits in the checkout code to prevent burst spikes. [INC-016]",
+      "retrieved_ids": [
+        "INC-016",
+        "INC-033",
+        "INC-038",
+        "INC-001",
+        "INC-017"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": true,
+      "fix_score": 1,
+      "judge_reason": "Root cause: Both identify the Redis connection pool exhaustion caused by too many connections. | Fix: The suggested fix increases the pool size instead of capping per\u2011worker usage, which does not align with the correct approach.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 18.729,
+      "errors": []
     },
     {
       "test_id": "TEST-03",
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: Consumer lag is increasing because a synchronous tax lookup call is blocking the poll loop, causing the consumer group to rebalance and commit failures.\n\nNext 3 steps:\n- Verify the duration of the tax lookup call and identify why it takes ~9\u202fseconds (e.g., add timing logs or profiling).\n- Mitigate by making the tax lookup asynchronous or adding a timeout/circuit breaker to prevent poll blocking.\n- Follow up by monitoring consumer lag and commit success after the change, and adjust Kafka consumer configs (e.g., max.poll.interval.ms) if needed.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 8.538,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 3,
+      "judge_reason": "Root cause: Both state that the inline enrichment (tax lookup) blocks the poll loop, exceeding max.poll.interval.ms. | Fix: The answer suggests async lookup and timeout, but misses the key fix of offloading enrichment to a bounded worker queue and reducing batch size.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.396,
+      "errors": []
     },
     {
       "test_id": "TEST-02",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 21.936,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: Application resolver caches pinned payment workers to the retired primary IP after failover.\nMatched past incident: INC-033 \u2014 Its recorded cause and symptoms are the closest match to this alert.\nFix that worked before: Recycled connections and workers, lowered resolver TTL, and validated new-primary traffic in connection metrics.\nNext 3 steps:\n- Compare current errors with the recalled incident details [INC-033].\n- Verify the dependency and capacity involved in the recorded cause [INC-033].\n- Apply the recorded fix only if the cause is confirmed [INC-033].",
+      "retrieved_ids": [
+        "INC-033",
+        "INC-016",
+        "INC-002",
+        "INC-001",
+        "INC-017"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: Both statements attribute the issue to workers holding a stale DNS entry for the retired primary after failover. | Fix: The answer includes all correct actions (flush resolver state, recycle stale connections/workers, lower DNS cache TTL) and adds useful verification steps.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 19.024,
+      "errors": []
     },
     {
       "test_id": "TEST-04",
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: A deadlock is occurring between the invoice and payment tables due to conflicting lock acquisition order in the settlement and adjustment workflows.  \n\nNext 3 steps:\n- Verify the deadlock by reproducing the error in a staging environment and capturing the deadlock graph for current queries.  \n- Mitigate by standardizing lock order (e.g., always lock invoice then payment) or adding retry logic for deadlock errors.  \n- Follow up with a review of transaction isolation levels and add monitoring to alert on recurring deadlocks.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 9.693,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: The answer correctly identifies the deadlock caused by opposite lock acquisition order. | Fix: The answer fully matches the correct fix by recommending lock order standardization and bounded retries.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.251,
+      "errors": []
     },
     {
       "test_id": "TEST-03",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 20.876,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: Consumer lag and\u202fCommitFailedError caused by poll timeout due to long\u2011running synchronous enrichment.  \n\nMatched past incident: INC-003 \u2014 same symptom of lag/CommitFailedError and root cause of max.poll.interval.ms being exceeded by synchronous tax lookup.  \n\nFix that worked before: Raised max.poll.interval.ms from 300000 to 900000 and moved enrichment to 8 workers.  \n\nNext 3 steps:  \n- Increase `max.poll.interval.ms` to at least 900000\u202fms and restart the consumer to apply the change. [INC-003]  \n- Scale the enrichment workers to 8 (or more) and verify processing time stays below the new interval. [INC-003]  \n- Enable monitoring of consumer lag and poll\u2011interval metrics; alert if lag exceeds 500\u202fk or poll duration approaches the limit. [INC-003]",
+      "retrieved_ids": [
+        "INC-003",
+        "INC-037",
+        "INC-011",
+        "INC-030",
+        "INC-032"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": true,
+      "fix_score": 3,
+      "judge_reason": "Root cause: Both state that the synchronous enrichment blocks polling past max.poll.interval.ms. | Fix: The suggestion improves poll interval and worker count but does not implement a bounded queue or batch size reduction, so it only partially addresses the root cause.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 16.787,
+      "errors": []
     },
     {
       "test_id": "TEST-05",
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: Redis instance is CPU\u2011bound, likely due to excessive KEYS commands from the nightly namespace cleanup, causing high latency and timeouts on get operations.\n\nNext 3 steps:\n- Verify the frequency and scope of KEYS calls (e.g.,\u202f`redis-cli monitor` or commandstats) to confirm they dominate CPU usage.  \n- Mitigate by replacing the KEYS\u2011based cleanup with a non\u2011blocking pattern (e.g., SCAN + batch deletes) or schedule it at a lower\u2011traffic time.  \n- Follow up by monitoring CPU and p99 latency after the change and adjust the cleanup schedule or implement rate\u2011limiting if needed.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 8.899,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: The answer correctly identifies the CPU\u2011bound issue caused by excessive KEYS commands during the cleanup scan. | Fix: The answer correctly identifies KEYS as the culprit and proposes the same rate\u2011limited SCAN solution.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.596,
+      "errors": []
     },
     {
       "test_id": "TEST-04",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
+      "answer": "Diagnosis: PostgreSQL deadlock (SQLSTATE 40P01) caused by inconsistent lock ordering between invoice and payment_attempt rows.  \nMatched past incident: INC-035 \u2014 Same services and opposite lock order on invoice vs\u202fpayment_attempt caused deadlocks.  \nFix that worked before: Made both paths lock payment_attempt before invoice and added a bounded deadlock retry.  \n\nNext 3 steps:  \n- Verify all code paths now acquire `payment_attempt` before `invoice` locks and update any outliers. [INC-035]  \n- Add or confirm bounded jitter retry logic for SQLSTATE\u202f40P01 victims. [INC-035]  \n- Deploy a short\u2011term monitoring alert on lock wait times to catch regressions early. [INC-035]",
+      "retrieved_ids": [
+        "INC-035",
+        "INC-026",
+        "INC-024",
+        "INC-040",
+        "INC-004"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: Both statements identify the same issue of opposite lock ordering on the same rows. | Fix: The answer fully matches the correct fix by standardizing lock ordering and adding bounded retries.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 16.546,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-06",
+      "memory": false,
+      "mode": "OFF",
+      "bank_id": null,
+      "answer": "Diagnosis: The query on\u202faudit_events\u202fis performing a sequential scan despite filters on\u202ftenant_id\u202fand\u202fcreated_at, causing the endpoint timeout.\n\nNext 3 steps:\n- Verify the execution plan shows no usable index on\u202ftenant_id\u202for\u202fcreated_at\u202ffor the query.\n- Mitigate by creating a composite index (e.g.,\u202fCREATE INDEX ON audit_events (tenant_id, created_at);) or adjusting the query to use existing indexes.\n- Follow up by monitoring query latency and endpoint response times, and schedule a routine index maintenance check.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 21.65,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: The answer correctly identifies the missing composite index as the root cause, matching the stated correct root cause. | Fix: The answer fully matches the correct fix, proposing the same composite index creation, plan verification, and monitoring steps.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.347,
+      "errors": []
     },
     {
       "test_id": "TEST-05",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 19.278,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-06",
-      "memory": false,
-      "mode": "OFF",
-      "bank_id": null,
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 9.719,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: A scheduled cleanup ran KEYS * against the production keyspace during peak traffic.\nMatched past incident: INC-006 \u2014 Its recorded cause and symptoms are the closest match to this alert.\nFix that worked before: Replaced KEYS with SCAN using COUNT 500 and limited cleanup to 2 batches/s.\nNext 3 steps:\n- Compare current errors with the recalled incident details [INC-006].\n- Verify the dependency and capacity involved in the recorded cause [INC-006].\n- Apply the recorded fix only if the cause is confirmed [INC-006].",
+      "retrieved_ids": [
+        "INC-006",
+        "INC-019",
+        "INC-027",
+        "INC-021",
+        "INC-015"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: Both state that the issue was caused by a cleanup using KEYS against the full production keyspace. | Fix: The proposed fix matches the correct fix exactly.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 17.253,
+      "errors": []
     },
     {
       "test_id": "TEST-07",
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: The pods are being OOMKilled due to node\u2011level memory pressure likely triggered by the recent log\u2011agent rollout, not an internal application cache leak.\n\nNext 3 steps:\n- Verify node memory usage and confirm the log\u2011agent\u2019s memory consumption across the affected nodes.\n- Mitigate by scaling back or temporarily disabling the new log\u2011agent version, and consider adding resource limits/requests for it.\n- Follow up by monitoring node memory pressure after rollback and reviewing the log\u2011agent deployment for leaks before re\u2011enabling.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 8.49,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 3,
+      "judge_reason": "Root cause: Both state the log\u2011agent\u2019s memory leak is causing node pressure and pod evictions. | Fix: The answer suggests rollback and monitoring but omits draining nodes and explicit alert setup.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.465,
+      "errors": []
     },
     {
       "test_id": "TEST-06",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 20.662,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: Missing composite index on\u202faudit_events\u202f(tenant_id, created_at) causing full scans and timeouts.  \n\nMatched past incident: INC-014 \u2014 identical symptom of full table scans on tenant_id\u202f+\u202fcreated_at after a migration dropped the index.  \n\nFix that worked before: Recreated idx_report_events_tenant_created concurrently and set statement_timeout to 20s.  \n\nNext 3 steps:\n- Verify the execution plan for the slow audit_events queries shows a sequential scan (use EXPLAIN ANALYZE) [INC-014].\n- Recreate the missing composite index on audit_events (tenant_id, created_at) concurrently to avoid locking [INC-014].\n- Apply a statement_timeout (e.g., 20\u202fseconds) to protect the database while the index rebuild completes and monitor CPU usage [INC-014].",
+      "retrieved_ids": [
+        "INC-014",
+        "INC-037",
+        "INC-039",
+        "INC-025",
+        "INC-031"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: The answer correctly identifies the dropped composite index as the root cause. | Fix: The proposed fix exactly matches the correct solution.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 16.822,
+      "errors": []
     },
     {
       "test_id": "TEST-08",
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: JWT verification failures are caused by an audience claim mismatch after the key rotation, not by a stale JWKS cache.\n\nNext 3 steps:\n- Verify the expected audience value in the token against the service\u2019s configured audience.\n- Update the token\u2011issuer configuration or adjust the verifier to accept the correct audience claim.\n- Test a token issuance cycle and monitor logs to confirm successful verification, then document the change.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 9.347,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 3,
+      "judge_reason": "Root cause: Both state that the failure is due to an audience claim mismatch. | Fix: The answer addresses audience mismatch but omits restoring the production audience config and separate issuer/signature validation.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.428,
+      "errors": []
     },
     {
       "test_id": "TEST-07",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 20.208,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: Thumbnail metadata accumulated in an unbounded in-process map after cache invalidation was disabled.\nMatched past incident: INC-021 \u2014 Its recorded cause and symptoms are the closest match to this alert.\nFix that worked before: Restored bounded cache eviction, added heap occupancy alerts, and rolled pods gradually after confirming heap stabilized.\nNext 3 steps:\n- Compare current errors with the recalled incident details [INC-021].\n- Verify the dependency and capacity involved in the recorded cause [INC-021].\n- Apply the recorded fix only if the cause is confirmed [INC-021].",
+      "retrieved_ids": [
+        "INC-005",
+        "INC-021",
+        "INC-034",
+        "INC-016",
+        "INC-028"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": 1,
+      "judge_reason": "Root cause: The answer cites a thumbnail metadata cache issue, while the correct root cause is a node log agent memory leak. | Fix: The proposed steps target cache eviction and pod rollout, not the log\u2011agent rollback and node\u2011level memory alerts required by the correct fix.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 19.447,
+      "errors": []
     },
     {
       "test_id": "TEST-09",
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: The client resolves the service to an IPv6 address, but the server is listening only on IPv4, causing gRPC calls to fail with UNAVAILABLE.\n\nNext 3 steps:\n- Verify the server\u2019s listening interfaces and confirm it is bound only to IPv4 (e.g., `netstat -tulpn` or `ss -ltnp`).\n- Mitigate by adding an IPv6 listener to the service or adjusting DNS/resolver to return an IPv4 address only.\n- Follow up by updating monitoring/health checks to confirm both IPv4 and IPv6 endpoints are healthy and documenting the address configuration.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 9.125,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: Both statements identify the same issue of IPv6 resolution with an IPv4\u2011only listener. | Fix: The proposed steps directly address aligning IPv4/IPv6 usage and suggest adding a dual\u2011stack listener, matching the correct fix.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.718,
+      "errors": []
     },
     {
       "test_id": "TEST-08",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 20.132,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: 401 error due to audience claim mismatch after JWT key rotation.  \nMatched past incident: No closely matching past incident. Closest: INC-010 (key\u2011rotation JWKS cache issue, differs because the failure here is claim validation, not stale keys).  \nFix that worked before: No proven fix for this alert.  \n\nNext 3 steps:  \n- Verify the `aud` claim in rejected tokens against the verifier\u2019s configured audience list (compare pre\u2011 and post\u2011rotation tokens)\u202f[INC-010].  \n- Audit the identity provider\u2019s token issuance settings for any audience changes introduced during the rotation and align them with the verifier\u2019s expectations\u202f[INC-010].  \n- Update the verifier\u2019s configuration or code to accept the new audience value, then perform a rolling restart to apply the change\u202f[INC-010].",
+      "retrieved_ids": [
+        "INC-010",
+        "INC-029",
+        "INC-028",
+        "INC-015",
+        "INC-005"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": true,
+      "fix_score": 5,
+      "judge_reason": "Root cause: Both identify an audience claim mismatch as the root cause. | Fix: The proposed steps directly address restoring the correct audience configuration, validating claims, and updating the verifier, matching the correct fix.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 19.341,
+      "errors": []
     },
     {
       "test_id": "TEST-10",
       "memory": false,
       "mode": "OFF",
       "bank_id": null,
-      "answer": "",
+      "answer": "Diagnosis: Scheduled jobs are delayed because the container timezone shift after the base image update causes the scheduler to interpret local wall time one hour ahead of the host clock.\n\nNext 3 steps:\n- Verify the timezone setting inside the affected containers and compare it to the host timezone.\n- Adjust the container timezone to match the host (e.g., set TZ env var or configure tzdata) or configure the scheduler to use UTC.\n- Monitor the next job run to confirm timely execution and document the timezone configuration change.",
       "retrieved_ids": [],
       "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 9.378,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": true,
+      "fix_score": 3,
+      "judge_reason": "Root cause: Both state that the image update caused the container\u2019s timezone to shift from UTC to a daylight\u2011offset local timezone, leading to delayed jobs. | Fix: The answer covers timezone verification and adjustment but omits explicit UTC setting and timezone\u2011aware scheduling.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 6.643,
+      "errors": []
     },
     {
       "test_id": "TEST-09",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 22.555,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: Synchronous webhook delivery held consumer threads past the poll deadline when destinations were slow.\nMatched past incident: INC-032 \u2014 Its recorded cause and symptoms are the closest match to this alert.\nFix that worked before: Decoupled delivery into a worker queue, reduced poll batch size, and quarantined repeatedly failing destinations.\nNext 3 steps:\n- Compare current errors with the recalled incident details [INC-032].\n- Verify the dependency and capacity involved in the recorded cause [INC-032].\n- Apply the recorded fix only if the cause is confirmed [INC-032].",
+      "retrieved_ids": [
+        "INC-033",
+        "INC-032",
+        "INC-016",
+        "INC-017",
+        "INC-022"
+      ],
+      "retrieval_hit": false,
+      "root_cause_correct": false,
+      "fix_score": 1,
+      "judge_reason": "Root cause: The answer cites slow webhook delivery, while the correct root cause is an IPv6/IPv4 mismatch. | Fix: The proposed fix addresses webhook delivery issues, not the address family alignment needed for the correct solution.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 21.16,
+      "errors": []
     },
     {
       "test_id": "TEST-10",
       "memory": true,
       "mode": "ON",
       "bank_id": "oncall-v3",
-      "answer": "",
-      "retrieved_ids": [],
-      "retrieval_hit": null,
-      "root_cause_correct": null,
-      "fix_score": null,
-      "judge_reason": "Not scored because the run errored.",
-      "errored": true,
-      "latency_seconds": 21.459,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "answer": "Diagnosis: Scheduled jobs are delayed by one hour after a base image update, likely due to a container timezone shift.\n\nMatched past incident: No closely matching past incident. Closest: INC-006 (both involve a scheduled task that ran at the wrong time, but the root cause was a Redis KEYS scan, not a timezone configuration).\n\nFix that worked before: No proven fix for this alert.\n\nNext 3 steps:\n- Verify the container\u2019s TZ environment variable and /etc/localtime after the image update; set TZ=UTC explicitly if needed. [INC-006]\n- Add a health\u2011check script that logs the container\u2019s local time versus host UTC at startup to catch drift early. [INC-006]\n- Redeploy the base image with the timezone files pinned (e.g., copy a known tzdata package) and monitor the next scheduled run. [INC-006]",
+      "retrieved_ids": [
+        "INC-027",
+        "INC-036",
+        "INC-006",
+        "INC-013",
+        "INC-028"
+      ],
+      "retrieval_hit": true,
+      "root_cause_correct": true,
+      "fix_score": 3,
+      "judge_reason": "Root cause: Both state that the image update caused a timezone shift leading to a one\u2011hour delay. | Fix: It suggests setting TZ=UTC but omits timezone\u2011aware scheduling and next\u2011run verification.",
+      "judge_errors": [],
+      "errored": false,
+      "latency_seconds": 15.583,
+      "errors": []
     }
   ],
   "learning_curve": [
     {
       "N": 0,
       "root_cause_correct": 0.0,
-      "root_cause_count": "0/0",
-      "fix_score": 0.0,
-      "retrieval_hit": 0.0,
-      "errored_runs": 10,
-      "latency_seconds": 10.9772,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_count": "0/10",
+      "fix_score": 0.2,
+      "retrieval_hit": 0.2,
+      "errored_runs": 0,
+      "latency_seconds": 8.9038,
+      "errors": []
     },
     {
       "N": 40,
-      "root_cause_correct": 0.0,
-      "root_cause_count": "0/0",
-      "fix_score": 0.0,
-      "retrieval_hit": 0.0,
-      "errored_runs": 10,
-      "latency_seconds": 22.5276,
-      "errors": [
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range",
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
+      "root_cause_correct": 0.8,
+      "root_cause_count": "8/10",
+      "fix_score": 0.6799999999999999,
+      "retrieval_hit": 0.9,
+      "errored_runs": 0,
+      "latency_seconds": 17.5685,
+      "errors": []
     }
   ],
-  "errors": [
-    {
-      "test_id": "TEST-01",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-02",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-01",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-03",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-02",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-04",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-03",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-05",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-04",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-05",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-06",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-07",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-06",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-08",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-07",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-09",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-08",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-10",
-      "mode": "OFF",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-09",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    },
-    {
-      "test_id": "TEST-10",
-      "mode": "ON",
-      "error": [
-        "Groq judge failed after 3 attempts: list index out of range"
-      ]
-    }
-  ]
+  "errors": []
 }
