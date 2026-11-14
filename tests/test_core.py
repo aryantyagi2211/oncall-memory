@@ -3,6 +3,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import core
+import oncall_memory.diagnose as diagnose_module
 
 
 def test_extraction_prefers_metadata():
@@ -39,8 +40,8 @@ def test_validator_rejects_fix_not_from_cited_incident():
 
 
 def test_empty_recall_never_claims_relevant_history(monkeypatch):
-    monkeypatch.setattr(core, "get_hindsight_client", lambda: object())
-    monkeypatch.setattr(core, "_recall_with_timeout", lambda *args: (([], [], "", []), ""))
+    monkeypatch.setattr(diagnose_module, "get_hindsight_client", lambda: object())
+    monkeypatch.setattr(diagnose_module, "_recall_with_timeout", lambda *args: (([], [], "", []), ""))
     monkeypatch.setattr(core, "compress_reflection", lambda *args: "Matched past incident: No relevant history\nFix that worked before: No relevant history")
     result = core.diagnose_with_memory("new alert")
     assert "no relevant history" not in result["answer"].lower()

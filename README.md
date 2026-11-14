@@ -42,8 +42,8 @@ For each alert:
 The app stores records in the `oncall-v3` bank.
 
 - **Retain:** `seed.py:build_incident_document()` formats the 40 synthetic postmortems, and `seed.py:main()` retains them with stable incident IDs. In `app.py`, the **Mark resolved** form calls `Hindsight.retain()` with a timestamp-based unique incident ID and the same text field layout. The **Worked / Didn't work** buttons also call `retain()` with a `feedback-<timestamp>` document ID and the alert, suggested fix, cited incident, outcome, and note.
-- **Recall:** `core.py:_recall_with_timeout()` calls `Hindsight.recall()` for the new alert, parses incident fields, and separates feedback records from incident records.
-- **Reflect:** `core.py:_recall_with_timeout()` calls `Hindsight.reflect()` before `compress_reflection()` builds the memory answer. The **Reflect now** control in `app.py` calls `core.reflect_now()` directly.
+- **Recall:** `oncall_memory.memory:_recall_with_timeout()` calls `Hindsight.recall()` for the new alert. `oncall_memory.parsing:recalled_memory()` extracts fields and `parse_feedback()` separates feedback records.
+- **Reflect:** `oncall_memory.memory:_recall_with_timeout()` calls `Hindsight.reflect()` before `oncall_memory.prompts:compress_reflection()` builds the answer. The **Reflect now** control calls `oncall_memory.memory:reflect_now()` through the `core.py` compatibility shim.
 - **Other banks:** `eval/run_eval.py` evaluates the main `oncall-v3` bank and can seed `oncall-eval-10` and `oncall-eval-20`. `oncall-eval-0` is the empty-bank learning-curve point.
 
 ## Architecture
@@ -51,8 +51,8 @@ The app stores records in the `oncall-v3` bank.
 ```mermaid
 flowchart TD
     Alert[Alert and logs] --> UI[Streamlit app.py]
-    UI -->|parallel thread| Base[core.diagnose_without_memory]
-    UI -->|parallel thread| Recall[core.diagnose_with_memory]
+    UI -->|parallel thread| Base[oncall_memory.diagnose.diagnose_without_memory]
+    UI -->|parallel thread| Recall[oncall_memory.diagnose.diagnose_with_memory]
     Recall --> HRecall[Hindsight recall]
     HRecall --> Reflect[Hindsight reflect]
     Reflect --> Format[Groq formats memory answer]
@@ -68,12 +68,19 @@ flowchart TD
     Seed[seed.py] --> Retain
 ```
 
-In `app.py`, the no-memory diagnosis and full memory diagnosis run concurrently. The memory path in `core.py` recalls incidents and feedback, obtains reflection, asks Groq to format an answer, and validates cited IDs and the cited fix against recalled fields. Invalid answers use a deterministic template filled from recalled data. The Best match card derives its confidence heuristic from the displayed citation and recall order.
+In `app.py`, the no-memory diagnosis and full memory diagnosis run concurrently. The memory path recalls incidents and feedback, obtains reflection, asks Groq to format an answer, and validates cited IDs and the cited fix against recalled fields. Invalid answers use a deterministic template filled from recalled data. The Best match card derives its confidence heuristic from the displayed citation and recall order.
 
 ### File map
 
 - `app.py` — Streamlit controls, parallel execution, cached results, feedback, reflection, and resolved postmortem form.
-- `core.py` — Groq prompts and fallback logic, Hindsight recall/reflect, extraction, validation, and diagnosis functions.
+- `core.py` — backward-compatible re-exports for the modular package.
+- `oncall_memory/config.py` — environment settings, bank names, model names, and timeout/retry constants.
+- `oncall_memory/llm.py` — Groq calls, retries, deadline, and fallback model.
+- `oncall_memory/memory.py` — Hindsight client, retain template, recall, reflect, and timeouts.
+- `oncall_memory/parsing.py` — incident and feedback field extraction.
+- `oncall_memory/prompts.py` — prompt builders and answer formatting.
+- `oncall_memory/validation.py` — source validation and deterministic fallback.
+- `oncall_memory/diagnose.py` — public diagnosis and reflection pipelines.
 - `seed.py` — shared incident document template and seed CLI.
 - `data/incidents.json` — 40 synthetic incidents.
 - `data/test_incidents.json` — 10 held-out cases and expected root cause, fix, and relevant incident IDs.
@@ -82,7 +89,7 @@ In `app.py`, the no-memory diagnosis and full memory diagnosis run concurrently.
 - `tests/test_core.py` — five unit tests that mock external calls.
 - `requirements.txt` — Python dependencies.
 - `.env.example` — environment variable names and local Hindsight URL example.
-- `screenshots/` — UI screenshots.
+- `docs/screenshots/` — UI screenshots with descriptive filenames.
 
 ## Setup from a clean clone
 
@@ -111,7 +118,7 @@ Edit `.env`:
 - `HINDSIGHT_URL` — base URL of your Hindsight service. `.env.example` uses `http://localhost:8888` for a local service. For Hindsight Cloud, use the endpoint URL shown for your Cloud deployment.
 - `HINDSIGHT_API_KEY` — API key for deployments that require authentication. Obtain it from your Hindsight deployment or Cloud account settings. Leave blank if your service does not require a key.
 - `GROQ_API_KEY` — key for Groq API access, available from your Groq account/API console.
-- `HINDSIGHT_TIMEOUT` — optional timeout in seconds for Hindsight calls in `core.py`; defaults to 15 seconds in the app. The eval sets it to 90 seconds.
+- `HINDSIGHT_TIMEOUT` — optional timeout in seconds for Hindsight calls in `oncall_memory/memory.py`; defaults to 15 seconds in the app. The eval sets it to 90 seconds.
 
 Seed the production bank, then start Streamlit:
 
