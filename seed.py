@@ -1,5 +1,7 @@
 import json
 import os
+import argparse
+import time
 from pathlib import Path
 
 from dotenv import load_dotenv
@@ -14,7 +16,41 @@ BANK_ID = "oncall-v3"
 INCIDENTS_PATH = Path(__file__).parent / "data" / "incidents.json"
 
 
+def build_incident_document(incident: dict) -> tuple[str, dict[str, str]]:
+    incident_date = str(incident.get("date") or incident["timestamp"][:10])
+    root_cause = str(incident["root_cause"])
+    fix = str(incident["resolution_steps"])
+    content = (
+        f"Incident ID: {incident['id']}\n"
+        f"Service: {incident['service']}\n"
+        f"Severity: {incident['severity']}\n"
+        f"Date: {incident_date}\n"
+        f"Alert/error log: {incident['alert_log']}\n"
+        f"Root cause: {root_cause}\n"
+        f"Fix applied: {fix}\n"
+        f"MTTR: {incident['mttr_minutes']} minutes\n"
+        f"Runbook: {incident['runbook']}"
+    )
+    metadata = {
+        "service": str(incident["service"]),
+        "severity": str(incident["severity"]),
+        "date": incident_date,
+        "root_cause": root_cause,
+        "fix": fix,
+        "exact_fix": fix,
+        "incident_id": str(incident["id"]),
+        "mttr_minutes": str(incident["mttr_minutes"]),
+        "mttr": f"{incident['mttr_minutes']} minutes",
+        "root_cause_category": str(incident["root_cause_category"]),
+    }
+    return content, metadata
+
+
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--limit", type=int, help="Retain only the first N incidents")
+    args = parser.parse_args()
+
     if not HINDSIGHT_URL:
         raise SystemExit("Set HINDSIGHT_URL in .env before seeding incidents.")
 
@@ -26,32 +62,48 @@ def main() -> None:
     with INCIDENTS_PATH.open(encoding="utf-8") as incidents_file:
         incidents = json.load(incidents_file)
 
+    if args.limit is not None:
+        if args.limit < 0:
+            parser.error("--limit must be non-negative")
+        incidents = incidents[:args.limit]
+
+    total_started = time.perf_counter()
+    retained_count = 0
+    failed_ids = []
     for index, incident in enumerate(incidents, start=1):
-        content = (
-            f"Incident ID: {incident['id']}\n"
-            f"Timestamp: {incident['timestamp']}\n"
-            f"Service: {incident['service']}\n"
-            f"Severity: {incident['severity']}\n"
-            f"Alert/error log: {incident['alert_log']}\n"
-            f"Root cause: {incident['root_cause']}\n"
-            f"Resolution steps: {incident['resolution_steps']}\n"
-            f"MTTR: {incident['mttr_minutes']} minutes\n"
-            f"Runbook: {incident['runbook']}"
-        )
-        client.retain(
-            bank_id=BANK_ID,
-            content=content,
-            context="resolved production incident postmortem",
-            timestamp=incident["timestamp"],
-            document_id=incident["id"],
-            metadata={
-                "service": str(incident["service"]),
-                "severity": str(incident["severity"]),
-                "mttr_minutes": str(incident["mttr_minutes"]),
-                "root_cause_category": str(incident["root_cause_category"]),
-            },
-        )
-        print(f"Retained {incident['id']} ({index}/{len(incidents)})")
+        incident_started = time.perf_counter()
+        print(f"[{index}/{len(incidents)}] retaining {incident['id']}...", flush=True)
+        content, metadata = build_incident_document(incident)
+        try:
+            client.retain(
+                bank_id=BANK_ID,
+                content=content,
+                context="resolved production incident postmortem",
+                timestamp=incident["timestamp"],
+                document_id=incident["id"],
+                metadata=metadata,
+            )
+            retained_count += 1
+            print(
+                f"[{index}/{len(incidents)}] retained {incident['id']} "
+                f"in {time.perf_counter() - incident_started:.2f}s",
+                flush=True,
+            )
+        except Exception as error:
+            failed_ids.append(incident["id"])
+            print(
+                f"[{index}/{len(incidents)}] failed {incident['id']} "
+                f"in {time.perf_counter() - incident_started:.2f}s: {error}",
+                flush=True,
+            )
+
+    total_time = time.perf_counter() - total_started
+    print(
+        f"Summary: retained {retained_count}/{len(incidents)}; "
+        f"failed IDs: {', '.join(failed_ids) if failed_ids else 'none'}; "
+        f"total time: {total_time:.2f}s",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

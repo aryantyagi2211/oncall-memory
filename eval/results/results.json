@@ -1,0 +1,226 @@
+{
+  "runs": [
+    {
+      "test_id": "TEST-01",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: The checkout\u2011API is failing with 503 because the Redis connection pool is exhausted (max clients reached), causing request latency to spike (p99\u202f=\u202f2100\u202fms) during flash\u2011sale traffic.\n\nNext 3 steps:\n- Verify current Redis `maxclients` setting and current client count via `INFO clients`.\n- Mitigate by increasing Redis `maxclients` or adding a replica/sharding to distribute load; optionally adjust the API\u2019s connection pool size.\n- Follow up by monitoring Redis connection metrics and API latency during the next traffic surge, and implement alerts for client\u2011pool exhaustion.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.623,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-01",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: The payment API's connection pool was capped below peak checkout concurrency.\nMatched past incident: INC-001 \u2014 Its recorded cause and symptoms are the closest match to this alert.\nFix that worked before: Raised Redis max_connections from 50 to 200 and set the payments pool limit to 120.\nNext 3 steps:\n- Compare current errors with the recalled incident details [INC-001].\n- Verify the dependency and capacity involved in the recorded cause [INC-001].\n- Apply the recorded fix only if the cause is confirmed [INC-001].",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 17.526,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-02",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: The application is still trying to connect to the old Redis node, which is no longer accepting connections after the promotion.\n\nNext 3 steps:\n- Verify the client configuration points to the new primary IP (10.4.8.12) and that DNS/connection strings were updated.\n- Mitigate by restarting or reloading the affected service to pick up the new Redis endpoint, or update its connection pool settings.\n- Follow up by monitoring Redis health metrics and request latency for a period to confirm stable connectivity.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.775,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-02",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: Application resolver caches pinned payment workers to the retired primary IP after failover.\nMatched past incident: INC-033 \u2014 Its recorded cause and symptoms are the closest match to this alert.\nFix that worked before: Recycled connections and workers, lowered resolver TTL, and validated new-primary traffic in connection metrics.\nNext 3 steps:\n- Compare current errors with the recalled incident details [INC-033].\n- Verify the dependency and capacity involved in the recorded cause [INC-033].\n- Apply the recorded fix only if the cause is confirmed [INC-033].",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 16.773,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-03",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: Consumer group is experiencing frequent rebalances causing commit failures, likely due to long\u2011running synchronous processing (tax lookup) blocking the poll loop and increasing lag.\n\nNext 3 steps:\n- Verify the poll interval and processing time by measuring the duration of the tax lookup and ensuring `poll()` is called within the `max.poll.interval.ms` limit.  \n- Mitigate by off\u2011loading the tax lookup to an asynchronous worker or cache, or increase `max.poll.interval.ms` and adjust `session.timeout.ms` to tolerate longer processing.  \n- Follow up by monitoring consumer lag and rebalance metrics after changes, and implement alerts for lag thresholds and rebalance frequency.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.356,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-03",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: Consumer poll starvation caused by long synchronous tax lookup, leading to group rebalances and CommitFailedError.  \n\nMatched past incident: INC-003 \u2014 Same service (order\u2011events) suffered lag and CommitFailedError due to synchronous enrichment blocking poll.  \n\nFix that worked before: Raised max.poll.interval.ms from 300000 to 900000 and moved enrichment to 8 workers.  \n\nNext 3 steps:  \n- Offload tax lookup to a bounded worker queue so the consumer thread can call poll() regularly [INC-003].  \n- Increase max.poll.interval.ms to at least 300000\u202fms to cover worst\u2011case lookup latency [INC-003].  \n- Reduce max.poll.records or batch size to limit processing time per poll and monitor lag after changes [INC-030].",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 18.404,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-04",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: A deadlock is occurring between the invoice and payment tables due to opposite lock acquisition order in settlement and adjustment operations.  \n\nNext 3 steps:\n- Verify the deadlock by reproducing the error and confirming the lock order in the deadlock graph.  \n- Mitigate by standardizing lock acquisition order (e.g., always lock invoice then payment) or adding retry logic for transactions that encounter SQLSTATE 40P01.  \n- Follow up by adding monitoring for deadlock frequency and updating documentation on lock ordering for future changes.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.162,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-04",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: Intermittent PostgreSQL deadlock (SQLSTATE 40P01) in\u202finvoice\u2011api due to inconsistent lock ordering between invoice finalization and payment reconciliation.  \n\nMatched past incident: INC-026 \u2014 Same symptom (deadlock) and root\u2011cause (reverse lock order on invoice and payment rows).  \n\nFix that worked before: Standardized lock order, shortened the transaction scope, and retried deadlock victims with bounded jitter.  \n\nNext 3 steps:\n- Update all invoice\u2011api code paths to acquire the payment lock before the invoice lock, ensuring a single lock sequence [INC-026].\n- Refactor transactions to commit as early as possible and limit the number of rows locked per transaction [INC-026].\n- Add a deadlock\u2011retry wrapper catching SQLSTATE\u202f40P01 with exponential back\u2011off and jitter, and monitor retry metrics for regressions [INC-026].",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 18.726,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-05",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: Redis is saturated, likely due to an intensive nightly namespace cleanup causing high CPU and increased latency, leading to request timeouts.\n\nNext 3 steps:\n- Verify the cleanup job\u2019s frequency and duration, and check if its key\u2011space operations spike CPU.\n- Mitigate by throttling or rescheduling the cleanup, or batching KEYS commands to reduce load.\n- Follow up by monitoring CPU and latency after adjustment and consider adding Redis slow\u2011log alerts or indexing to prevent future spikes.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.132,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-05",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: A scheduled cleanup ran KEYS * against the production keyspace during peak traffic.\nMatched past incident: INC-006 \u2014 Its recorded cause and symptoms are the closest match to this alert.\nFix that worked before: Replaced KEYS with SCAN using COUNT 500 and limited cleanup to 2 batches/s.\nNext 3 steps:\n- Compare current errors with the recalled incident details [INC-006].\n- Verify the dependency and capacity involved in the recorded cause [INC-006].\n- Apply the recorded fix only if the cause is confirmed [INC-006].",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 21.388,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-06",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: A full sequential scan on the large\u202faudit_events\u202ftable is causing the query to exceed the timeout, likely due to missing or ineffective indexes on the filter columns.\n\nNext 3 steps:\n- Verify that indexes exist on\u202ftenant_id\u202fand on the combination\u202f(tenant_id, created_at)\u202ffor\u202faudit_events.\n- Mitigate by creating or rebuilding appropriate indexes (e.g.,\u202fCREATE INDEX ON audit_events (tenant_id, created_at);) and consider partitioning by tenant or date if needed.\n- Follow up by monitoring query plans and execution times, and adjust vacuum/analyze schedules to keep statistics current.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.459,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-06",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: Sequential scan and statement timeout on\u202faudit_events\u202fdue to missing composite index\u202f(tenant_id, created_at).  \nMatched past incident: INC-014 \u2014 migration dropped the same\u2011type composite index causing sequential scans and timeouts.  \nFix that worked before: Recreated idx_report_events_tenant_created concurrently and set statement_timeout to 20s.  \n\nNext 3 steps:  \n- Verify that an index on\u202faudit_events(tenant_id, created_at)\u202fexists; if absent, create it concurrently. [INC-014]  \n- Run\u202fANALYZE audit_events\u202fto refresh planner statistics after index creation. [INC-025]  \n- Add a statement_timeout (e.g., 20\u202fs) for affected endpoints to prevent runaway queries while confirming the fix. [INC-014]",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 18.054,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-07",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: The pod was OOMKilled due to node\u2011level memory pressure likely triggered by the recent log\u2011agent rollout, not an internal application memory leak.  \n\nNext 3 steps:\n- Verify node memory usage and identify which containers/processes spiked after the log\u2011agent deployment.  \n- Mitigate by throttling or rolling back the log\u2011agent, and consider adding memory limits or QoS classes to the affected pod.  \n- Follow up by monitoring node memory metrics post\u2011rollback and adjusting resource requests/limits to prevent recurrence.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.664,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-07",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: Node\u2011level memory pressure despite flat JVM heap; likely off\u2011heap or sidecar consumption unrelated to prior in\u2011heap cache leaks.  \n\nMatched past incident: No closely matching past incident. Closest: INC-034 (both OOMKilled, but root cause was an unbounded in\u2011heap cache, whereas current signs point to off\u2011heap/sidecar usage).  \n\nFix that worked before: No proven fix for this alert.  \n\nNext 3 steps:  \n- Inspect the log\u2011agent container\u2019s memory metrics (RSS, working set) to quantify its contribution [INC-021].  \n- Examine off\u2011heap allocations (e.g., DirectByteBuffers, native libraries) via `jcmd VM.native_memory summary` or similar tools [INC-005].  \n- If sidecar or off\u2011heap usage is excessive, adjust its memory limits/requests or add cgroup limits, then redeploy and monitor node memory pressure [INC-034].",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 18.129,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-08",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: The service is validating JWTs against a JWKS that was refreshed, but the tokens now contain an audience claim that does not match the expected value, causing 401 responses.\n\nNext 3 steps:\n- Verify the audience (`aud`) claim configured in the verifier matches the one issued in the new tokens.\n- Update the verifier\u2019s expected audience (or token issuer) configuration to align with the new tokens and redeploy if needed.\n- Monitor authentication logs for successful JWT verification and confirm that the 401 errors cease.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.424,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-08",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: 401 Unauthorized caused by audience (aud) claim mismatch after key rotation.  \n\nMatched past incident: No closely matching past incident. Closest: INC-010 (both involve key rotation, but INC\u2011010 was a stale JWKS cache issue, not an audience claim mismatch).  \n\nFix that worked before: No proven fix for this alert.  \n\nNext 3 steps:\n- Verify the expected audience configuration in the verifier matches the issuer\u2019s token generation settings. [INC-010]\n- Confirm the issuer\u2019s token payload includes the correct\u202faud\u202fvalue for the target service after rotation. [INC-010]\n- Deploy a test token with the intended audience and validate end\u2011to\u2011end authentication flow. [INC-010]",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 18.61,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-09",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: The client receives UNAVAILABLE because the resolver supplies an IPv6 endpoint while the server is listening only on IPv4, causing connection attempts to fail.\n\nNext 3 steps:\n- Verify the resolver configuration and confirm it is returning an IPv6 address for the target service.\n- Mitigate by updating the service to bind to IPv6 as well, or adjust the resolver/DNS to return only IPv4 addresses.\n- Follow up by adding a health\u2011check that validates reachable IP families and monitoring for similar resolution mismatches.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.333,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-09",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: Synchronous webhook delivery held consumer threads past the poll deadline when destinations were slow.\nMatched past incident: INC-032 \u2014 Its recorded cause and symptoms are the closest match to this alert.\nFix that worked before: Decoupled delivery into a worker queue, reduced poll batch size, and quarantined repeatedly failing destinations.\nNext 3 steps:\n- Compare current errors with the recalled incident details [INC-032].\n- Verify the dependency and capacity involved in the recorded cause [INC-032].\n- Apply the recorded fix only if the cause is confirmed [INC-032].",
+      "retrieval_hit": false,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 18.912,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-10",
+      "memory": false,
+      "bank_id": null,
+      "answer": "Diagnosis: The container timezone shift after the base\u2011image update causes the scheduler to interpret job times in the new zone, resulting in a one\u2011hour delay despite host clock sync.\n\nNext 3 steps:\n- Verify the current TZ setting inside the affected containers and compare it to the host timezone.\n- Adjust the container timezone to match the host (e.g., set TZ environment variable or reinstall tzdata) and reload/restart the scheduler.\n- Monitor the next scheduled run to confirm correct timing and document the timezone configuration for future image updates.",
+      "retrieval_hit": null,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 6.399,
+      "errors": []
+    },
+    {
+      "test_id": "TEST-10",
+      "memory": true,
+      "bank_id": "oncall-v3",
+      "answer": "Diagnosis: Scheduled jobs run one hour late after base\u2011image update, likely due to container timezone reset to UTC.  \n\nMatched past incident: No closely matching past incident. Closest: INC-006 (both involve a scheduled task triggering at the wrong time, but INC\u2011006\u2019s issue was Redis KEYS overload, not timezone drift).  \n\nFix that worked before: No proven fix for this alert.  \n\nNext 3 steps:\n- Verify the container\u2019s current timezone (`date` inside pod) and compare to expected TZ. [INC-006]\n- Explicitly set the `TZ` environment variable or mount `/etc/localtime` in the deployment manifest to enforce the correct zone. [INC-006]\n- Redeploy the affected service and monitor job start times for the next schedule cycle. [INC-006]",
+      "retrieval_hit": true,
+      "root_cause_correct": false,
+      "fix_score": null,
+      "latency_seconds": 18.471,
+      "errors": []
+    }
+  ],
+  "learning_curve": [],
+  "errors": []
+}
