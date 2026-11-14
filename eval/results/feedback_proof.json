@@ -1,0 +1,14 @@
+{
+  "bank_id": "oncall-feedback-demo",
+  "alert": "After Redis promotion, auth requests time out to 10.4.8.12; redis.exceptions.ConnectionError: connection refused; new primary is healthy.",
+  "before": {
+    "best_match_id": "INC-033",
+    "fix": "Recycled connections and workers, lowered resolver TTL, and validated new-primary traffic in connection metrics."
+  },
+  "feedback_document_id": "feedback-20261114T093327800686Z-c273f971",
+  "after": {
+    "best_match_id": "INC-033",
+    "fix": "Recycled connections and workers, lowered resolver TTL, and validated new-primary traffic in connection metrics."
+  },
+  "failed_fix_avoided": false
+}

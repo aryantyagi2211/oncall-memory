@@ -25,7 +25,7 @@ PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-20b"
 
 
-from core import (BANK_ID, HINDSIGHT_URL, ask_memory, associate_feedback, compute_recurring_insights, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now)
+from core import (BANK_ID, HINDSIGHT_URL, ask_memory, associate_feedback, associate_supersessions, compute_recurring_insights, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now, suggest_supersession)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 with open(os.path.join(DATA_DIR, "test_incidents.json"), encoding="utf-8") as test_file:
@@ -171,12 +171,15 @@ if diagnoses:
                         st.caption(reason.group(1).strip())
                 else:
                     st.write("No valid incident citation or close match was found.")
-                if demoted:
-                    st.markdown("**Previously failed**")
-                    for record in demoted:
-                        for incident_id in record.get("matched_incident_ids", []):
-                            st.caption(f"{incident_id} · {record.get('fix') or 'fix unavailable'} · {record.get('date', 'date unavailable')}")
-                st.caption("Confidence is a heuristic based on citation validation and recall order.")
+            supersessions = associate_supersessions(diagnoses["memories"], diagnoses.get("feedback", []))
+            for record in supersessions:
+                st.warning(f"Outdated: {record['old_id']} superseded by {record['new_id']} ({record['reason']})")
+            if demoted:
+                st.markdown("**Previously failed**")
+                for record in demoted:
+                    for incident_id in record.get("matched_incident_ids", []):
+                        st.caption(f"{incident_id} · {record.get('fix') or 'fix unavailable'} · {record.get('date', 'date unavailable')}")
+            st.caption("Confidence is a heuristic based on citation validation and recall order.")
             if matched_memory:
                 date_label = matched_memory["date"] or "date unavailable"
                 mttr_label = recalled_mttr_label(
@@ -354,3 +357,50 @@ if resolved:
             st.error(f"Could not save the postmortem to Hindsight: {exc}")
         else:
             st.success(f"Saved to memory as {incident_id}")
+            st.session_state.pop("pending_supersession", None)
+            try:
+                suggestion = suggest_supersession(postmortem, bank_id=BANK_ID)
+            except Exception as exc:
+                st.warning(f"Could not check for superseded incidents: {exc}")
+            else:
+                if suggestion:
+                    st.session_state["pending_supersession"] = {
+                        **suggestion,
+                        "new_id": incident_id,
+                        "alert": original_incident,
+                    }
+
+pending = st.session_state.get("pending_supersession")
+if pending:
+    st.info(f"Possible {pending['relation']} relationship: {pending['old_id']} may be outdated. {pending['reason']}")
+    confirm_col, dismiss_col = st.columns(2)
+    if confirm_col.button("Confirm outdated", key="confirm_supersession"):
+        record_id = f"supersede-{pending['old_id']}-{pending['new_id']}"
+        record_date = datetime.now(timezone.utc).date().isoformat()
+        record_text = (
+            "Record type: supersession\n"
+            f"Old incident: {pending['old_id']}\n"
+            f"New incident: {pending['new_id']}\n"
+            f"Relation: {pending['relation']}\n"
+            f"Reason: {pending['reason']}\n"
+            f"Alert/error log: {pending.get('alert', '')}\n"
+            f"Date: {record_date}"
+        )
+        try:
+            get_hindsight_client().retain(
+                bank_id=BANK_ID, content=record_text,
+                context="confirmed incident supersession record",
+                timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                document_id=record_id,
+                metadata={"record_type": "supersession", "old_id": pending["old_id"],
+                          "new_id": pending["new_id"], "relation": pending["relation"],
+                          "reason": pending["reason"], "date": record_date,
+                          "alert": pending.get("alert", "")},
+            )
+        except Exception as exc:
+            st.error(f"Could not retain supersession record: {exc}")
+        else:
+            st.session_state.pop("pending_supersession", None)
+            st.success(f"Marked {pending['old_id']} as outdated by {pending['new_id']}.")
+    if dismiss_col.button("Dismiss", key="dismiss_supersession"):
+        st.session_state.pop("pending_supersession", None)

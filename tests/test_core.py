@@ -1,9 +1,12 @@
 import sys
+import inspect
 from pathlib import Path
+from hindsight_client import Hindsight
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 import core
 import oncall_memory.diagnose as diagnose_module
+import oncall_memory.memory as memory_module
 
 
 def test_extraction_prefers_metadata():
@@ -136,3 +139,55 @@ def test_ask_memory_empty_recall_says_no_history(monkeypatch):
     monkeypatch.setattr(diagnose_module, "_recall_with_timeout", lambda *args, **kwargs: (([], [], "", []), ""))
     answer = core.ask_memory("What fixed this issue?")
     assert answer == "No relevant history was recalled for this question."
+
+
+def test_superseded_incident_is_demoted_and_newer_chosen(monkeypatch):
+    old = _memory("INC-401", "increase Redis timeout")
+    new = _memory("INC-402", "move to healthy primary")
+    record = {"record_type": "supersession", "old_id": "INC-401", "new_id": "INC-402",
+              "relation": "contradicts", "reason": "The old primary was retired."}
+    monkeypatch.setattr(diagnose_module, "get_hindsight_client", lambda: object())
+    monkeypatch.setattr(diagnose_module, "_recall_with_timeout", lambda *args: (([old, new], [], "", [record]), ""))
+    monkeypatch.setattr(diagnose_module, "compress_reflection", lambda _r, candidates, _f:
+                        f"Matched past incident: {candidates[0]['id']} — current fix\nFix that worked before: {candidates[0]['fix']}")
+    result = core.diagnose_with_memory("Redis primary down")
+    assert result["memories"][0]["id"] == "INC-402"
+    assert "Matched past incident: INC-402" in result["answer"]
+    assert "Outdated: INC-401 was superseded by INC-402" in result["answer"]
+
+
+def test_no_outdated_mention_without_recalled_record(monkeypatch):
+    memory = _memory("INC-403", "restart service")
+    monkeypatch.setattr(diagnose_module, "get_hindsight_client", lambda: object())
+    monkeypatch.setattr(diagnose_module, "_recall_with_timeout", lambda *args: (([memory], [], "", []), ""))
+    monkeypatch.setattr(diagnose_module, "compress_reflection", lambda *args:
+                        "Matched past incident: INC-403 — similar\nFix that worked before: restart service")
+    result = core.diagnose_with_memory("service unavailable")
+    assert "outdated:" not in result["answer"].lower()
+    assert "superseded by" not in result["answer"].lower()
+
+
+def test_invalid_supersession_old_id_is_rejected():
+    suggestion = '{"old_id":"INC-999","relation":"contradicts","reason":"Different fix."}'
+    assert core.validate_supersession_suggestion(suggestion, [_memory("INC-404", "valid fix")]) is None
+
+
+def test_hindsight_call_keywords_match_installed_client_signatures():
+    calls = {"recall": [], "reflect": []}
+
+    class CapturingClient:
+        def recall(self, **kwargs):
+            calls["recall"].append(kwargs)
+            return {"results": []}
+
+        def reflect(self, **kwargs):
+            calls["reflect"].append(kwargs)
+            return ""
+
+    memory_module._recall_with_timeout(CapturingClient(), "test alert", "test-bank", limit=20)
+
+    recall_parameters = set(inspect.signature(Hindsight.recall).parameters) - {"self"}
+    reflect_parameters = set(inspect.signature(Hindsight.reflect).parameters) - {"self"}
+    assert calls["recall"] and calls["reflect"]
+    assert all(set(kwargs) <= recall_parameters for kwargs in calls["recall"])
+    assert all(set(kwargs) <= reflect_parameters for kwargs in calls["reflect"])

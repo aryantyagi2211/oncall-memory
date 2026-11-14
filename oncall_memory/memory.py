@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from typing import Any
 from hindsight_client import Hindsight
 from .config import BANK_ID, HINDSIGHT_URL, HINDSIGHT_API_KEY, HINDSIGHT_TIMEOUT_SECONDS, HINDSIGHT_RETRIES, HINDSIGHT_RETRY_DELAY_SECONDS
-from .parsing import memory_text, memory_field, recalled_memory, deduplicate_incidents, parse_feedback
+from .parsing import memory_text, memory_field, recalled_memory, deduplicate_incidents, parse_feedback, parse_supersession
 logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=4)
 
@@ -35,16 +35,22 @@ def recall_incidents(
 
 def _recall_with_timeout(client: Hindsight, incident: str, bank_id: str, limit: int = 5):
     def call():
-        recalled = client.recall(bank_id=bank_id, query=incident, limit=limit)
+        recall_kwargs = {"bank_id": bank_id, "query": incident}
+        if limit > 5:
+            # max_tokens is the supported way to give a larger recall more room;
+            # the requested incident count is still enforced when deduplicating.
+            recall_kwargs["max_tokens"] = 8192
+        recalled = client.recall(**recall_kwargs)
         items = [item for item in memory_field(recalled, "results", []) if memory_text(item)]
         feedback = [record for item in items if (record := parse_feedback(item))]
+        supersessions = [record for item in items if (record := parse_supersession(item))]
         facts = [
             recalled_memory(item)
             for item in items
-            if memory_text(item) and not parse_feedback(item)
+            if memory_text(item) and not parse_feedback(item) and not parse_supersession(item)
         ]
         reflection = client.reflect(bank_id=bank_id, query=incident)
-        return deduplicate_incidents(facts, limit=limit), facts, memory_text(reflection), feedback
+        return deduplicate_incidents(facts, limit=limit), facts, memory_text(reflection), feedback + supersessions
 
     last_error = None
     for attempt in range(HINDSIGHT_RETRIES + 1):

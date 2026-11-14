@@ -117,10 +117,31 @@ def parse_feedback(item: Any) -> dict[str, str] | None:
     }
 
 
+def parse_supersession(item: Any) -> dict[str, str] | None:
+    """Parse a confirmed supersession record from recalled Hindsight content."""
+    text = memory_text(item)
+    if not re.search(r"(?im)^Record type:\s*supersession\s*$", text):
+        return None
+    values = {}
+    for key, label in (("old_id", "Old incident"), ("new_id", "New incident"),
+                       ("relation", "Relation"), ("reason", "Reason"), ("date", "Date")):
+        match = re.search(rf"(?im)^{re.escape(label)}:\s*(.+)$", text)
+        values[key] = match.group(1).strip() if match else ""
+    values["text"] = text
+    values["record_type"] = "supersession"
+    if not re.fullmatch(r"INC-\d{3,}", values["old_id"]) or not re.fullmatch(r"INC-\d{3,}", values["new_id"]):
+        return None
+    if values["relation"] not in {"supersedes", "contradicts"} or not values["reason"]:
+        return None
+    return values
+
+
 def associate_feedback(memories: list[dict[str, str]], feedback: list[dict[str, str]]) -> list[dict[str, Any]]:
     """Associate feedback with recalled incidents by cited ID or exact fix."""
     associated = []
     for record in feedback:
+        if record.get("record_type") == "supersession" or record.get("outcome") not in {"worked", "did not work"}:
+            continue
         record_fix = " ".join(record.get("fix", "").lower().split())
         ids = [memory["id"] for memory in memories if memory.get("id") == record.get("incident_id")]
         if record_fix:
@@ -132,11 +153,26 @@ def associate_feedback(memories: list[dict[str, str]], feedback: list[dict[str, 
     return associated
 
 
+def associate_supersessions(memories: list[dict[str, str]], records: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Keep confirmed supersessions whose older incident was recalled."""
+    recalled_ids = {memory.get("id") for memory in memories}
+    return [record for record in records
+            if record.get("record_type") == "supersession" and record.get("old_id") in recalled_ids]
+
+
 def rank_feedback_candidates(memories: list[dict[str, str]], feedback: list[dict[str, str]]) -> list[dict[str, str]]:
     """Rank incidents by recall order adjusted for recorded Worked and failed feedback."""
     worked = {memory.get("id"): 0 for memory in memories}
     failed = {memory.get("id"): 0 for memory in memories}
+    supersession_targets = set()
     for record in feedback:
+        if record.get("record_type") == "supersession":
+            if record.get("old_id") in failed:
+                failed[record["old_id"]] += 1
+            if record.get("new_id") in worked:
+                worked[record["new_id"]] += 1
+                supersession_targets.add(record["new_id"])
+            continue
         counts = worked if record.get("outcome") == "worked" else failed if record.get("outcome") == "did not work" else None
         if counts is not None:
             for incident_id in record.get("matched_incident_ids", []):
@@ -146,6 +182,7 @@ def rank_feedback_candidates(memories: list[dict[str, str]], feedback: list[dict
     return sorted(
         memories,
         key=lambda memory: (
+            memory.get("id") in supersession_targets,
             float(memory.get("recall_order", total - memories.index(memory)))
             + worked.get(memory.get("id"), 0)
             - failed.get(memory.get("id"), 0)

@@ -31,8 +31,8 @@ def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]], 
     ranked.sort(key=lambda pair: pair[0], reverse=True)
     if not ranked:
         return (
-            "Diagnosis: Every recalled incident fix with feedback was marked as unsuccessful. No remaining recalled fix can be recommended.\n"
-            "Matched past incident: No closely matching past incident; all recalled candidates have failed fixes.\n"
+            "Diagnosis: Every recalled candidate is outdated or has a fix marked unsuccessful. No current fix can be recommended from this history.\n"
+            "Matched past incident: No closely matching current incident; recalled candidates are outdated or have failed fixes.\n"
             "Fix that worked before: No proven fix for this alert.\n"
             "Next 3 steps:\n- Recheck the current symptoms and affected dependency.\n"
             "- Investigate a new mitigation using the service runbook.\n"
@@ -65,6 +65,9 @@ def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]], 
 def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident_text: str = "", feedback: list[dict[str, str]] | None = None) -> str:
     """Validate memory answer."""
     allowed_ids = {m.get("id", "") for m in memories if m.get("id")}
+    supersession_records = [record for record in (feedback or []) if record.get("record_type") == "supersession"]
+    for record in supersession_records:
+        allowed_ids.update(i for i in (record.get("old_id"), record.get("new_id")) if i)
     cited_ids = set(re.findall(r"\bINC-\d{3,}\b", answer))
     matched_line = re.search(r"(?im)^Matched past incident:\s*(.*)$", answer)
     fix_line = re.search(r"(?im)^Fix that worked before:\s*(.*)$", answer)
@@ -75,17 +78,20 @@ def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident
     selected = next((m for m in memories if match_id and m.get("id") == match_id.group(0)), None)
     failed_records = [record for record in (feedback or []) if record.get("outcome") == FEEDBACK_OUTCOME_FAILED]
     failed_ids = {incident_id for record in failed_records for incident_id in record.get("matched_incident_ids", [])}
+    recalled_ids = {memory.get("id") for memory in memories}
+    superseded_ids = {record["old_id"] for record in supersession_records}
+    superseded_selection = bool(selected and selected.get("id") in superseded_ids)
     valid = bool(matched_line and fix_line and not re.search(r"Relevant recalled history is available|placeholder|<ID>|<exact fix>", answer, re.I))
     if no_match:
         valid = valid and bool(selected) and fix_text == "No proven fix for this alert."
     else:
-        valid = valid and bool(selected and selected.get("root_cause") and selected.get("fix") and selected.get("id") not in failed_ids)
+        valid = valid and bool(selected and selected.get("root_cause") and selected.get("fix") and selected.get("id") not in failed_ids and not superseded_selection)
         if selected:
             valid = valid and fix_text == selected.get("fix", "").strip()
     valid = valid and not (cited_ids - allowed_ids)
     if not valid:
         logger.warning("Memory answer failed source validation; using recalled-data template.")
-        answer = _memory_answer_fallback(incident_text, memories, failed_ids)
+        answer = _memory_answer_fallback(incident_text, memories, failed_ids | superseded_ids)
     # Remove ungrounded model-generated failure claims; only recalled feedback may create notices.
     answer = re.sub(r"(?im)^.*was marked ['\"]Didn't work['\"].*$\n?", "", answer)
     selected_id = re.search(r"(?im)^Matched past incident:\s*(INC-\d{3,})\b", answer)
@@ -104,6 +110,12 @@ def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident
             answer += (f"\n{failed_id} fix ({record.get('fix', '')[:100]}) was marked 'Didn't work' on "
                        f"{record.get('date', 'date unavailable')}. Note: {record.get('note', 'none')}. "
                        "No remaining recalled incident is available to try.")
+    # Supersession claims are reconstructed only from recalled supersession records.
+    answer = re.sub(r"(?im)^.*(?:superseded by|outdated:).*$\n?", "", answer)
+    for record in supersession_records:
+        old_id, new_id = record.get("old_id", ""), record.get("new_id", "")
+        if old_id in recalled_ids:
+            answer += f"\nOutdated: {old_id} was superseded by {new_id} ({record.get('reason', 'reason not recorded')})."
     return answer
 
 

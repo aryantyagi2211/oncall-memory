@@ -100,6 +100,22 @@ def answer_memory_question(question: str, memories: list[dict[str, str]], reflec
         {"role": "user", "content": f"QUESTION:\n{question}\n\nRECALLED INCIDENTS:\n{context}\n\nHINDSIGHT REFLECTION:\n{reflection or 'No reflection returned.'}"},
     ])
 
+
+def detect_supersession(new_postmortem: str, memories: list[dict[str, str]], reflection: str) -> str:
+    """Classify a resolved postmortem against recalled incidents as strict JSON."""
+    context = build_memory_context(memories)
+    return groq_completion([
+        {"role": "system", "content": (
+            "Compare the new resolved postmortem with the recalled incidents. Select at most "
+            "one recalled old incident. Output JSON only with exactly these keys: old_id, "
+            "relation, reason. relation must be supersedes, contradicts, or consistent. "
+            "old_id must be copied from a recalled incident ID. If no incident is relevant, "
+            "use old_id null and relation consistent. Do not infer that a fix is outdated "
+            "unless the new postmortem supports that conclusion."
+        )},
+        {"role": "user", "content": f"NEW POSTMORTEM:\n{new_postmortem}\n\nRECALLED INCIDENTS:\n{context}\n\nHINDSIGHT REFLECTION:\n{reflection}"},
+    ])
+
 def no_memory_fallback(incident: str) -> str:
     """No memory fallback."""
     evidence = " ".join(incident.split())
