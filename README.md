@@ -15,6 +15,8 @@ It shows the recalled incident and recorded fix alongside a diagnosis, so engine
 
 Start the app using the setup steps below. Paste an alert and click **Diagnose** with Memory OFF, then turn Memory ON and diagnose the same alert. The app caches each result by alert text, so switching modes reuses the side already computed. The alerts below come from held-out cases whose saved evaluation rows have a correct root-cause verdict and recalled IDs that overlap the relevant incident IDs.
 
+**Example alerts:** Use the **Try an example** dropdown above the alert box to load TEST-02, TEST-04, or a novel case with no relevant history. The examples are loaded from `data/test_incidents.json`.
+
 **Example 1 — TEST-02**
 
 ```text
@@ -218,3 +220,10 @@ Caveats: only 10 test cases, synthetic data, an LLM judge, and a single run. The
 - Run the full learning curve, including N=10 and N=20.
 - Build a Slack bot.
 - Evaluate with real postmortem data.
+
+## Path to adoption (PLANNED, not built)
+
+- Ingest postmortems from existing documents and tools.
+- Receive alerts through a PagerDuty or Opsgenie webhook.
+- Reply in the incident's Slack thread.
+- Use Worked / Didn't work feedback buttons as the learning signal.

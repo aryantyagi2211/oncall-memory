@@ -1,4 +1,5 @@
 import logging
+import json
 import os
 import re
 import time
@@ -26,9 +27,27 @@ FALLBACK_MODEL = "openai/gpt-oss-20b"
 
 from core import (BANK_ID, HINDSIGHT_URL, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now)
 
+DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+with open(os.path.join(DATA_DIR, "test_incidents.json"), encoding="utf-8") as test_file:
+    EXAMPLE_CASES = json.load(test_file)
+EXAMPLES = {
+    "TEST-02": next(case for case in EXAMPLE_CASES if case["id"] == "TEST-02"),
+    "TEST-04": next(case for case in EXAMPLE_CASES if case["id"] == "TEST-04"),
+    "Novel incident (no history)": next(case for case in EXAMPLE_CASES if not case["relevant_incident_ids"]),
+}
+
+
+def timed_call(function, *args):
+    started = time.perf_counter()
+    result = function(*args)
+    return result, time.perf_counter() - started
+
 st.set_page_config(page_title="OnCall Memory", page_icon="🛠️", layout="wide")
 st.title("OnCall Memory")
 st.caption("Incident response that learns from resolved incidents.")
+
+with st.expander("How to try it", expanded=False):
+    st.markdown("1. Pick an example or paste an alert.\n2. Click **Diagnose**.\n3. Compare the Memory OFF and Memory ON answers.")
 
 with st.sidebar:
     st.header("Memory")
@@ -39,6 +58,15 @@ with st.sidebar:
     )
     if memory_enabled and not HINDSIGHT_URL:
         st.info("Set HINDSIGHT_URL in .env to enable incident recall.")
+
+example_choice = st.selectbox(
+    "Try an example",
+    ["Choose an example...", "TEST-02", "TEST-04", "Novel incident (no history)"],
+)
+if example_choice != st.session_state.get("last_example_choice"):
+    if example_choice in EXAMPLES:
+        st.session_state["incident_input"] = EXAMPLES[example_choice]["alert_log"]
+    st.session_state["last_example_choice"] = example_choice
 
 incident = st.text_area(
     "Paste a new incident (alert and log snippet)",
@@ -59,17 +87,18 @@ if st.button("Diagnose", type="primary"):
         need_baseline = "baseline" not in cached
         need_memory = memory_enabled and "memory" not in cached
         with ThreadPoolExecutor(max_workers=2) as pool:
-            baseline_future = pool.submit(diagnose_without_memory, alert_text) if need_baseline else None
-            memory_future = pool.submit(diagnose_with_memory, alert_text) if need_memory else None
+            baseline_future = pool.submit(timed_call, diagnose_without_memory, alert_text) if need_baseline else None
+            memory_future = pool.submit(timed_call, diagnose_with_memory, alert_text) if need_memory else None
             with st.status("Analyzing incident...", expanded=True) as status:
                 status.write("Recalling past incidents..." if need_memory else "Using cached memory answer..." if memory_enabled else "Memory is off.")
                 if memory_future:
-                    memory_result = memory_future.result()
+                    memory_result, memory_elapsed = memory_future.result()
                     status.write("Reflecting...")
                     status.write("Writing answer...")
                     cached["memory"] = memory_result
+                    cached["memory_elapsed"] = memory_elapsed
                 if baseline_future:
-                    cached["baseline"] = baseline_future.result()
+                    cached["baseline"], cached["baseline_elapsed"] = baseline_future.result()
                 status.update(label="Diagnosis ready", state="complete", expanded=False)
         if need_memory and cached["memory"]["error"]:
             st.warning(f"Hindsight memory could not be loaded: {cached['memory']['error']}")
@@ -86,6 +115,8 @@ if st.button("Diagnose", type="primary"):
             "reflection": memory_result["reflection"],
             "memory_error": memory_result["error"],
             "memory_enabled": memory_enabled,
+            "baseline_elapsed": cached.get("baseline_elapsed"),
+            "memory_elapsed": cached.get("memory_elapsed"),
         }
 
 diagnoses = st.session_state.get("diagnoses")
@@ -94,6 +125,8 @@ if diagnoses:
     with without_col:
         st.subheader("Without memory")
         st.markdown(diagnoses["baseline"])
+        if diagnoses.get("baseline_elapsed") is not None:
+            st.caption(f"Elapsed: {diagnoses['baseline_elapsed']:.2f}s")
     with with_col:
         st.subheader("With memory")
         if diagnoses["memory_enabled"]:
@@ -122,6 +155,9 @@ if diagnoses:
                     st.markdown(f"**{matched_memory['id']}** · {matched_memory['service'] or 'Service unavailable'}")
                     st.write(f"Root cause: {matched_memory['root_cause']}")
                     st.write(f"Fix: {matched_memory['fix']}")
+                    reason = re.search(r"(?im)^Matched past incident:\s*INC-\d{3,}\s*[—-]\s*(.+)$", diagnoses["contextual"] or "")
+                    if reason:
+                        st.caption(reason.group(1).strip())
                 else:
                     st.write("No valid incident citation or close match was found.")
                 st.caption("Confidence is a heuristic based on citation validation and recall order.")
@@ -145,6 +181,8 @@ if diagnoses:
 
         if diagnoses["memory_error"]:
             st.caption("Memory could not be loaded; the result contains no recalled history.")
+        if diagnoses.get("memory_elapsed") is not None:
+            st.caption(f"Elapsed: {diagnoses['memory_elapsed']:.2f}s")
         if diagnoses["memory_enabled"] and diagnoses["contextual"]:
             note = st.text_input("Optional feedback note", key="feedback_note")
             worked_col, failed_col = st.columns(2)
