@@ -25,7 +25,7 @@ PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-20b"
 
 
-from core import (BANK_ID, HINDSIGHT_URL, ask_memory, associate_feedback, associate_supersessions, compute_recurring_insights, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now, suggest_supersession)
+from core import (BANK_ID, HINDSIGHT_URL, ask_memory, associate_feedback, associate_supersessions, compute_recurring_insights, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now, suggest_supersession, supersession_badge_text)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 with open(os.path.join(DATA_DIR, "test_incidents.json"), encoding="utf-8") as test_file:
@@ -173,7 +173,7 @@ if diagnoses:
                     st.write("No valid incident citation or close match was found.")
             supersessions = associate_supersessions(diagnoses["memories"], diagnoses.get("feedback", []))
             for record in supersessions:
-                st.warning(f"Outdated: {record['old_id']} superseded by {record['new_id']} ({record['reason']})")
+                st.warning(supersession_badge_text(record))
             if demoted:
                 st.markdown("**Previously failed**")
                 for record in demoted:

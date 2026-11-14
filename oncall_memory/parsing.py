@@ -127,13 +127,24 @@ def parse_feedback(item: Any) -> dict[str, str] | None:
 def parse_supersession(item: Any) -> dict[str, str] | None:
     """Parse a confirmed supersession record from recalled Hindsight content."""
     text = memory_text(item)
-    if not re.search(r"(?im)^Record type:\s*supersession\s*$", text):
+    metadata = memory_field(item, "metadata", {}) or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    text_record_type = re.search(r"(?im)^Record type:\s*supersession\s*$", text)
+    record_type = str(metadata.get("record_type") or ("supersession" if text_record_type else "")).lower()
+    if record_type != "supersession":
         return None
     values = {}
     for key, label in (("old_id", "Old incident"), ("new_id", "New incident"),
                        ("relation", "Relation"), ("reason", "Reason"), ("date", "Date")):
         match = re.search(rf"(?im)^{re.escape(label)}:\s*(.+)$", text)
-        values[key] = match.group(1).strip() if match else ""
+        metadata_key = {"old_id": "old_id", "new_id": "new_id"}.get(key, key)
+        values[key] = str(metadata.get(metadata_key) or (match.group(1) if match else "")).strip()
+    values["relation"] = values["relation"].lower()
+    if not values["date"]:
+        stamp = memory_field(item, "timestamp", "") or metadata.get("timestamp", "")
+        date_match = re.search(r"20\d{2}-\d{2}-\d{2}", str(stamp))
+        values["date"] = date_match.group(0) if date_match else ""
     values["text"] = text
     values["record_type"] = "supersession"
     if not re.fullmatch(r"INC-\d{3,}", values["old_id"]) or not re.fullmatch(r"INC-\d{3,}", values["new_id"]):
@@ -141,6 +152,11 @@ def parse_supersession(item: Any) -> dict[str, str] | None:
     if values["relation"] not in {"supersedes", "contradicts"} or not values["reason"]:
         return None
     return values
+
+
+def supersession_badge_text(record: dict[str, str]) -> str:
+    """Format the UI badge for one confirmed supersession record."""
+    return f"Outdated: superseded by {record['new_id']} — {record['old_id']} ({record.get('reason', 'reason not recorded')})"
 
 
 def associate_feedback(memories: list[dict[str, str]], feedback: list[dict[str, str]]) -> list[dict[str, Any]]:

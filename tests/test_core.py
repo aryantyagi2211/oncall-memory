@@ -157,6 +157,57 @@ def test_superseded_incident_is_demoted_and_newer_chosen(monkeypatch):
     assert "Outdated: INC-401 was superseded by INC-402" in result["answer"]
 
 
+def test_metadata_supersession_fragment_demotes_old_and_formats_badge(monkeypatch):
+    supersession_fragment = {
+        "text": "Record type: supersession\nOld incident: INC-499\nNew incident: INC-498\nRelation: supersedes\nReason: text fragment",
+        "metadata": {
+            "record_type": "supersession", "old_id": "INC-411", "new_id": "INC-412",
+            "relation": "contradicts", "reason": "The resolver was healthy; an ACL blocked the new primary.",
+        },
+    }
+    old = _memory("INC-411", "lower DNS TTL")
+    new = _memory("INC-412", "allow active-primary traffic")
+    def recalled_fact(memory):
+        return {
+            "text": (f"Incident ID: {memory['id']}\nService: {memory['service']}\nDate: {memory['date']}\n"
+                     f"Root cause: {memory['root_cause']}\nFix applied: {memory['fix']}\nMTTR: {memory['mttr']}"),
+            "metadata": {"incident_id": memory["id"], "service": memory["service"],
+                         "date": memory["date"], "root_cause": memory["root_cause"],
+                         "fix": memory["fix"], "mttr": memory["mttr"]},
+        }
+
+    class RecallClient:
+        def recall(self, **_kwargs):
+            return {"results": [recalled_fact(old), recalled_fact(new), supersession_fragment]}
+
+        def reflect(self, **_kwargs):
+            return ""
+
+    (recalled_memories, _raw_facts, _reflection, feedback), error = memory_module._recall_with_timeout(
+        RecallClient(), "auth requests fail after Redis promotion", "test-bank"
+    )
+    assert not error
+    old, new = recalled_memories
+    record = next(item for item in feedback if item.get("record_type") == "supersession")
+    assert record["old_id"] == "INC-411"  # metadata takes precedence over fragment text
+    assert record["new_id"] == "INC-412"
+    monkeypatch.setattr(diagnose_module, "get_hindsight_client", lambda: object())
+    monkeypatch.setattr(diagnose_module, "_recall_with_timeout", lambda *args: (([old, new], [], "", [record]), ""))
+    monkeypatch.setattr(
+        diagnose_module,
+        "compress_reflection",
+        lambda _reflection, candidates, _records: (
+            f"Matched past incident: {candidates[0]['id']} — the corrected diagnosis matches\n"
+            f"Fix that worked before: {candidates[0]['fix']}"
+        ),
+    )
+    result = core.diagnose_with_memory("auth requests fail after Redis promotion")
+    associated = core.associate_supersessions(result["memories"], result["feedback"])
+    assert result["memories"][0]["id"] == "INC-412"
+    assert "Outdated: INC-411 was superseded by INC-412" in result["answer"]
+    assert core.supersession_badge_text(associated[0]).startswith("Outdated: superseded by INC-412")
+
+
 def test_no_outdated_mention_without_recalled_record(monkeypatch):
     memory = _memory("INC-403", "restart service")
     monkeypatch.setattr(diagnose_module, "get_hindsight_client", lambda: object())

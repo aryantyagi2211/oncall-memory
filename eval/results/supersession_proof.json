@@ -1,0 +1,180 @@
+{
+  "bank_id": "oncall-supersede-demo-20261114T100822-73ca14",
+  "pair_selection": {
+    "test_case_id": "TEST-02",
+    "old_incident_id": "INC-033",
+    "new_incident_id": "INC-20261114101050187793",
+    "explanation": "TEST-02 baseline matches the stale-primary history. The new incident describes a distinct ACL failure without repeating the alert's exact endpoint/error, so Stage B can retain the old match; Stage C adds only the explicit old-to-new contradiction record.",
+    "stage_B_old_incident_was_candidate": true,
+    "stage_B_old_incident_was_best_match": false,
+    "suitable_for_causal_comparison": false
+  },
+  "stage_A_baseline": {
+    "best_match_id": "INC-033",
+    "supersession_records_recalled_count": 0,
+    "superseded_ids_detected": [],
+    "candidate_ids_in_order": [
+      "INC-033",
+      "INC-015",
+      "INC-016",
+      "INC-002",
+      "INC-018"
+    ],
+    "candidate_list_in_order": [
+      {
+        "incident_id": "INC-033",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-015",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-016",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-002",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-018",
+        "eligible": true,
+        "outdated": false
+      }
+    ],
+    "outdated_badge_shown": false,
+    "outdated_badges": [],
+    "outdated_notice_in_answer": false,
+    "validator": {
+      "accepted_llm_answer": false,
+      "used_template": true,
+      "rejection_reasons": [
+        "fix text does not exactly match the recalled fix"
+      ]
+    },
+    "seconds_waited": 0,
+    "diagnosis_seconds": 14.09,
+    "error": ""
+  },
+  "stage_B_new_incident_only": {
+    "best_match_id": "INC-20261114101050187793",
+    "supersession_records_recalled_count": 0,
+    "superseded_ids_detected": [],
+    "candidate_ids_in_order": [
+      "INC-20261114101050187793",
+      "INC-033",
+      "INC-016",
+      "INC-017",
+      "INC-018"
+    ],
+    "candidate_list_in_order": [
+      {
+        "incident_id": "INC-20261114101050187793",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-033",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-016",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-017",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-018",
+        "eligible": true,
+        "outdated": false
+      }
+    ],
+    "outdated_badge_shown": false,
+    "outdated_badges": [],
+    "outdated_notice_in_answer": false,
+    "validator": {
+      "accepted_llm_answer": true,
+      "used_template": false,
+      "rejection_reasons": []
+    },
+    "seconds_waited": 1.0,
+    "diagnosis_seconds": 11.38,
+    "error": ""
+  },
+  "stage_C_confirmed_supersession": {
+    "best_match_id": "INC-20261114101050187793",
+    "supersession_records_recalled_count": 1,
+    "superseded_ids_detected": [
+      "INC-033"
+    ],
+    "candidate_ids_in_order": [
+      "INC-20261114101050187793",
+      "INC-018",
+      "INC-033",
+      "INC-028",
+      "INC-016"
+    ],
+    "candidate_list_in_order": [
+      {
+        "incident_id": "INC-20261114101050187793",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-018",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-033",
+        "eligible": false,
+        "outdated": true
+      },
+      {
+        "incident_id": "INC-028",
+        "eligible": true,
+        "outdated": false
+      },
+      {
+        "incident_id": "INC-016",
+        "eligible": true,
+        "outdated": false
+      }
+    ],
+    "outdated_badge_shown": true,
+    "outdated_badges": [
+      "Outdated: superseded by INC-20261114101050187793 \u2014 INC-033 (The new postmortem corrects INC-033: the resolver was current and an ACL blocked the auth-service subnet from the replacement Redis primary.)"
+    ],
+    "outdated_notice_in_answer": true,
+    "validator": {
+      "accepted_llm_answer": false,
+      "used_template": true,
+      "rejection_reasons": [
+        "fix text does not exactly match the recalled fix"
+      ]
+    },
+    "seconds_waited": 12.1,
+    "diagnosis_seconds": 10.73,
+    "error": ""
+  },
+  "effect_from_supersession_record": {
+    "old_incident_was_eligible_in_B": true,
+    "old_incident_is_outdated_in_C": true,
+    "badge_appears_only_in_C": true,
+    "target_supersession_badge_shown": true,
+    "new_incident_was_candidate": true,
+    "new_incident_selected_if_recalled": true,
+    "best_match_changed_away_from_old": true
+  },
+  "passed": false
+}
