@@ -134,15 +134,20 @@ def build_incident_document(incident: dict) -> tuple[str, dict[str, str]]:
     incident_date = str(incident.get("date") or incident["timestamp"][:10])
     root_cause = str(incident["root_cause"])
     fix = str(incident["resolution_steps"])
-    content = (
-        f"Incident ID: {incident['id']}\n" f"Service: {incident['service']}\n"
-        f"Severity: {incident['severity']}\n" f"Date: {incident_date}\n"
-        f"Alert/error log: {incident['alert_log']}\n" f"Root cause: {root_cause}\n"
-        f"Fix applied: {fix}\n" f"MTTR: {incident['mttr_minutes']} minutes\n"
-        f"Runbook: {incident['runbook']}"
-    )
+    side_effects = str(incident.get("side_effects") or "").strip()
+    content_lines = [
+        f"Incident ID: {incident['id']}", f"Service: {incident['service']}",
+        f"Severity: {incident['severity']}", f"Date: {incident_date}",
+        f"Alert/error log: {incident['alert_log']}", f"Root cause: {root_cause}",
+        f"Fix applied: {fix}", f"MTTR: {incident['mttr_minutes']} minutes",
+        f"Runbook: {incident['runbook']}",
+    ]
+    if side_effects:
+        content_lines.append(f"Side effects: {side_effects}")
+    content = "\n".join(content_lines)
     metadata = {"service": str(incident["service"]), "severity": str(incident["severity"]),
         "date": incident_date, "root_cause": root_cause, "fix": fix, "exact_fix": fix,
         "incident_id": str(incident["id"]), "mttr_minutes": str(incident["mttr_minutes"]),
-        "mttr": f"{incident['mttr_minutes']} minutes", "root_cause_category": str(incident["root_cause_category"])}
+        "mttr": f"{incident['mttr_minutes']} minutes", "root_cause_category": str(incident["root_cause_category"]),
+        "side_effects": side_effects}
     return content, metadata

@@ -1,4 +1,5 @@
 """Demonstrate that retained failed-fix feedback changes the next diagnosis."""
+import argparse
 import json
 import os
 import re
@@ -21,7 +22,6 @@ import oncall_memory.diagnose as diagnose_module
 from oncall_memory.validation import memory_answer_validation_reasons
 from seed import build_incident_document
 
-BANK_ID = "oncall-feedback-demo"
 OUTPUT_PATH = ROOT / "eval" / "results" / "feedback_proof.json"
 FEEDBACK_POLL_INTERVAL_SECONDS = 3
 FEEDBACK_POLL_TIMEOUT_SECONDS = 120
@@ -33,10 +33,10 @@ def selected_memory(result: dict) -> dict | None:
     return next((memory for memory in result.get("memories", []) if match and memory.get("id") == match.group(1)), None)
 
 
-def verify_seeded_incident(client: Hindsight, incident: dict) -> None:
+def verify_seeded_incident(client: Hindsight, bank_id: str, incident: dict) -> None:
     """Confirm a seeded incident recalls with its root cause and fix extracted."""
     response = client.recall(
-        bank_id=BANK_ID,
+        bank_id=bank_id,
         query=f"Incident ID: {incident['id']}",
         max_tokens=8192,
     )
@@ -56,13 +56,13 @@ def verify_seeded_incident(client: Hindsight, incident: dict) -> None:
     print(f"Seed verification passed for {incident['id']} (root cause and fix extracted).", flush=True)
 
 
-def wait_for_feedback(client: Hindsight, feedback_id: str, incident_id: str, fix: str) -> tuple[float, dict | None]:
+def wait_for_feedback(client: Hindsight, bank_id: str, feedback_id: str, incident_id: str, fix: str) -> tuple[float, dict | None]:
     """Poll Hindsight until the complete failed-fix feedback record is recalled."""
     started = time.monotonic()
     normalized_fix = " ".join(fix.lower().split())
     while True:
         response = client.recall(
-            bank_id=BANK_ID,
+            bank_id=bank_id,
             query=f"Feedback ID: {feedback_id}\nCited incident: {incident_id}\nSuggested fix: {fix}",
             max_tokens=8192,
         )
@@ -87,7 +87,7 @@ def wait_for_feedback(client: Hindsight, feedback_id: str, incident_id: str, fix
         time.sleep(min(FEEDBACK_POLL_INTERVAL_SECONDS, FEEDBACK_POLL_TIMEOUT_SECONDS - waited))
 
 
-def diagnose_with_diagnostics(alert: str) -> tuple[dict, dict]:
+def diagnose_with_diagnostics(alert: str, bank_id: str) -> tuple[dict, dict]:
     """Run normal diagnosis while capturing candidate and validation decisions."""
     captured: dict = {}
     original_validator = diagnose_module.validate_memory_answer
@@ -110,7 +110,7 @@ def diagnose_with_diagnostics(alert: str) -> tuple[dict, dict]:
     diagnose_module.validate_memory_answer = capture_validator
     diagnose_module.rank_feedback_candidates = capture_ranker
     try:
-        result = core.diagnose_with_memory(alert, bank_id=BANK_ID)
+        result = core.diagnose_with_memory(alert, bank_id=bank_id)
     finally:
         diagnose_module.validate_memory_answer = original_validator
         diagnose_module.rank_feedback_candidates = original_ranker
@@ -173,25 +173,31 @@ def save_report(report: dict) -> None:
 
 def main() -> None:
     """Seed the demo bank, verify recall, record failed feedback, and compare diagnoses."""
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--bank", help="Use this Hindsight bank instead of a fresh timestamped bank")
+    args = parser.parse_args()
     hindsight_url = os.getenv("HINDSIGHT_URL", "").strip()
     api_key = os.getenv("HINDSIGHT_API_KEY", "").strip()
     if not hindsight_url:
         raise SystemExit("Set HINDSIGHT_URL before running the feedback proof.")
+    run_stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S")
+    bank_id = args.bank or f"oncall-feedback-demo-{run_stamp}-{uuid.uuid4().hex[:6]}"
+    print(f"Feedback proof bank: {bank_id}", flush=True)
     client = Hindsight(base_url=hindsight_url, api_key=api_key) if api_key else Hindsight(base_url=hindsight_url)
     with (ROOT / "data" / "incidents.json").open(encoding="utf-8") as handle:
         incidents = json.load(handle)
     for incident in incidents:
         content, metadata = build_incident_document(incident)
-        client.retain(bank_id=BANK_ID, content=content,
+        client.retain(bank_id=bank_id, content=content,
                       context="resolved production incident postmortem",
                       timestamp=incident["timestamp"], document_id=incident["id"], metadata=metadata)
     if not incidents:
         raise SystemExit("Seed verification failed: data/incidents.json contains no incidents.")
-    verify_seeded_incident(client, incidents[0])
+    verify_seeded_incident(client, bank_id, incidents[0])
 
     with (ROOT / "data" / "test_incidents.json").open(encoding="utf-8") as handle:
         alert = next(item["alert_log"] for item in json.load(handle) if item["id"] == "TEST-02")
-    before_result, before_capture = diagnose_with_diagnostics(alert)
+    before_result, before_capture = diagnose_with_diagnostics(alert, bank_id)
     before_memory = selected_memory(before_result)
     if not before_memory or not before_memory.get("fix"):
         raise RuntimeError("Initial diagnosis did not cite a recalled incident with a fix; proof cannot continue.")
@@ -206,7 +212,7 @@ def main() -> None:
         "Outcome: did not work\nNote: Feedback proof demonstration."
     )
     client.retain(
-        bank_id=BANK_ID, content=feedback,
+        bank_id=bank_id, content=feedback,
         context="feedback on incident-response recommendation",
         timestamp=timestamp, document_id=feedback_id,
         metadata={"record_type": "feedback", "feedback_id": feedback_id,
@@ -214,10 +220,10 @@ def main() -> None:
                   "suggested_fix": before_memory["fix"], "note": note, "timestamp": timestamp},
     )
 
-    waited, recalled_feedback = wait_for_feedback(client, feedback_id, before_memory["id"], before_memory["fix"])
+    waited, recalled_feedback = wait_for_feedback(client, bank_id, feedback_id, before_memory["id"], before_memory["fix"])
     if not recalled_feedback:
         report = {
-            "bank_id": BANK_ID,
+            "bank_id": bank_id,
             "alert": alert,
             "before": {"best_match_id": before_memory["id"], "fix": before_memory["fix"], "diagnostics": before_capture},
             "feedback_document_id": feedback_id,
@@ -227,10 +233,10 @@ def main() -> None:
         save_report(report)
         raise SystemExit(report["error"])
 
-    after_result, after_capture = diagnose_with_diagnostics(alert)
+    after_result, after_capture = diagnose_with_diagnostics(alert, bank_id)
     after_memory = selected_memory(after_result)
     report = {
-        "bank_id": BANK_ID,
+        "bank_id": bank_id,
         "alert": alert,
         "before": {
             "best_match_id": before_memory["id"], "fix": before_memory["fix"],

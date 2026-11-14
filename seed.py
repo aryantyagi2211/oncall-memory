@@ -43,6 +43,8 @@ def main() -> None:
     retained_count = 0
     failed_ids = []
     for index, incident in enumerate(incidents, start=1):
+        # Older incident JSON has no side_effects field; retain it as an empty optional value.
+        incident["side_effects"] = str(incident.get("side_effects") or "")
         incident_started = time.perf_counter()
         print(f"[{index}/{len(incidents)}] retaining {incident['id']}...", flush=True)
         content, metadata = build_incident_document(incident)

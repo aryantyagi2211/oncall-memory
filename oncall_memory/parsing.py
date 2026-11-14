@@ -52,6 +52,13 @@ def recalled_memory(item: Any, log_missing: bool = True) -> dict[str, str]:
         match = re.search(r"MTTR:\s*(.+?)(?:\n|$)", text, re.IGNORECASE)
         mttr = match.group(1).strip() if match else ""
 
+    side_effects = str(metadata.get("side_effects") or "").strip()
+    if not side_effects:
+        match = re.search(r"Side effects?:\s*(.+?)(?:\n|$)", text, re.IGNORECASE)
+        side_effects = match.group(1).strip() if match else ""
+    if side_effects.casefold() in {"none", "none recorded", "not recorded", "unknown", "n/a"}:
+        side_effects = ""
+
     parsed = {
         "id": incident_id,
         "date": incident_date,
@@ -59,6 +66,7 @@ def recalled_memory(item: Any, log_missing: bool = True) -> dict[str, str]:
         "root_cause": root_cause,
         "fix": exact_fix,
         "mttr": mttr,
+        "side_effects": side_effects,
         "text": text,
     }
     missing = [field for field in ("id", "date", "service", "root_cause", "fix", "mttr") if not parsed[field]]
@@ -85,11 +93,12 @@ def deduplicate_incidents(
                 "root_cause": "",
                 "fix": "",
                 "mttr": "",
+                "side_effects": "",
                 "text": "",
             },
         )
-        for field in ("date", "service", "root_cause", "fix", "mttr"):
-            if not incident[field] and fact[field]:
+        for field in ("date", "service", "root_cause", "fix", "mttr", "side_effects"):
+            if not incident[field] and fact.get(field):
                 incident[field] = fact[field]
         if fact["text"]:
             incident["text"] = "\n".join(
@@ -110,6 +119,7 @@ def parse_feedback(item: Any) -> dict[str, str] | None:
     stamp = memory_field(item, "timestamp", "") or metadata.get("timestamp", "")
     date_match = re.search(r"20\d{2}-\d{2}-\d{2}", str(stamp)) or re.search(r"(?im)^Date:\s*(20\d{2}-\d{2}-\d{2})", text)
     note_match = re.search(r"(?im)^Note:\s*(.*)$", text)
+    side_effect_match = re.search(r"(?im)^Side effect observed:\s*(.*)$", text)
     fix_match = re.search(r"(?im)^Suggested fix:\s*(.+)$", text)
     incident_match = re.search(r"(?im)^Cited incident:\s*(INC-\d{3,}|none)\s*$", text)
     feedback_id_match = re.search(r"(?im)^Feedback ID:\s*(\S+)\s*$", text)
@@ -121,6 +131,7 @@ def parse_feedback(item: Any) -> dict[str, str] | None:
         "incident_id": (incident_match.group(1) if incident_match else str(metadata.get("incident_id") or metadata.get("cited_incident_id") or "none")),
         "date": date_match.group(0) if date_match else str(metadata.get("date") or "date unavailable"),
         "note": note_match.group(1).strip() if note_match else str(metadata.get("note") or "none"),
+        "side_effect_observed": side_effect_match.group(1).strip() if side_effect_match else str(metadata.get("side_effect_observed") or ""),
     }
 
 
@@ -174,6 +185,29 @@ def associate_feedback(memories: list[dict[str, str]], feedback: list[dict[str, 
         if ids:
             associated.append({**record, "matched_incident_ids": ids})
     return associated
+
+
+def fix_track_record(memory: dict[str, str], feedback: list[dict[str, str]]) -> dict[str, int]:
+    """Count Worked and failed feedback for the recalled incident's exact fix."""
+    target_fix = " ".join(re.findall(r"\w+", memory.get("fix", "").casefold()))
+    if not target_fix:
+        return {"worked": 0, "total": 0}
+    matching = [
+        record for record in feedback
+        if " ".join(re.findall(r"\w+", record.get("fix", "").casefold())) == target_fix
+        and record.get("outcome") in {"worked", "did not work"}
+    ]
+    worked = sum(record.get("outcome") == "worked" for record in matching)
+    return {"worked": worked, "total": len(matching)}
+
+
+def known_side_effect_warning(memory: dict[str, str]) -> str | None:
+    """Return a warning only for a side effect recorded on this recalled incident."""
+    side_effects = str(memory.get("side_effects") or "").strip()
+    incident_id = str(memory.get("id") or "").strip()
+    if not side_effects or not incident_id:
+        return None
+    return f"Known side effect: {side_effects} ({incident_id})"
 
 
 def associate_supersessions(memories: list[dict[str, str]], records: list[dict[str, str]]) -> list[dict[str, str]]:

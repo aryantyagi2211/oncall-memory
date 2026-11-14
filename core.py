@@ -1,6 +1,6 @@
 """Backward-compatible public API for the modular OnCall Memory package."""
 from oncall_memory.config import *
-from oncall_memory.parsing import memory_text, memory_field, recalled_memory, deduplicate_incidents, recalled_mttr_label, parse_feedback, parse_supersession, associate_feedback, associate_supersessions, rank_feedback_candidates, supersession_badge_text
+from oncall_memory.parsing import memory_text, memory_field, recalled_memory, deduplicate_incidents, recalled_mttr_label, parse_feedback, parse_supersession, associate_feedback, associate_supersessions, rank_feedback_candidates, supersession_badge_text, fix_track_record, known_side_effect_warning
 from oncall_memory.memory import get_hindsight_client, recall_incidents, _recall_with_timeout, reflect_now, build_incident_document
 from oncall_memory.llm import GroqCompletionError, groq_error_details, is_groq_timeout, is_reasoning_effort_rejection, is_transient_groq_error, complete_with_model, groq_completion
 from oncall_memory.prompts import build_memory_context, ask_groq, answer_memory_question, compress_reflection, no_memory_fallback, recalled_memory_fallback

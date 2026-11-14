@@ -29,6 +29,57 @@ def test_extraction_falls_back_to_template_text():
     assert parsed["fix"] == "raise pool limit"
 
 
+def test_old_incident_without_side_effects_still_parses():
+    parsed = core.recalled_memory({
+        "text": "Incident ID: INC-112\nService: payments\nDate: 2026-01-02\n"
+                "Root cause: pool exhausted\nFix applied: raise pool limit\nMTTR: 12 minutes"
+    })
+    assert parsed["id"] == "INC-112"
+    assert parsed["fix"] == "raise pool limit"
+    assert parsed["side_effects"] == ""
+
+
+def test_fix_track_record_counts_matching_worked_and_failed_feedback(monkeypatch):
+    incident = _memory("INC-113", "Restart the auth worker pool.")
+    feedback = [
+        {"outcome": "worked", "fix": "restart   the auth worker pool", "incident_id": "INC-113"},
+        {"outcome": "did not work", "fix": "Restart the auth worker pool.", "incident_id": "INC-113"},
+        {"outcome": "worked", "fix": "Increase Redis max connections.", "incident_id": "INC-113"},
+    ]
+    monkeypatch.setattr(diagnose_module, "get_hindsight_client", lambda: object())
+    monkeypatch.setattr(diagnose_module, "_recall_with_timeout", lambda *args: (([incident], [], "", feedback), ""))
+    result = core.diagnose_with_memory("auth workers are failing")
+    assert core.fix_track_record(result["memories"][0], result["feedback"]) == {"worked": 1, "total": 2}
+
+
+def test_side_effect_warning_uses_only_recalled_side_effect(monkeypatch):
+    incident_document = {
+        "id": "INC-114", "date": "2026-11-14", "timestamp": "2026-11-14T12:00:00Z",
+        "service": "auth-service", "severity": "SEV-2", "alert_log": "worker restart",
+        "root_cause": "stale worker connections", "root_cause_category": "connection_stale",
+        "resolution_steps": "recycle workers", "mttr_minutes": 10, "runbook": "auth-restart",
+        "side_effects": "cache stampede after restart",
+    }
+    text, metadata = core.build_incident_document(incident_document)
+    assert "Side effects: cache stampede after restart" in text
+    assert metadata["side_effects"] == "cache stampede after restart"
+    recorded = core.recalled_memory({"text": text, "metadata": metadata})
+    old_record = _memory("INC-115", "recycle workers")
+    memories = [recorded]
+    monkeypatch.setattr(diagnose_module, "get_hindsight_client", lambda: object())
+    monkeypatch.setattr(diagnose_module, "_recall_with_timeout", lambda *args: ((memories, [], "", []), ""))
+    monkeypatch.setattr(
+        diagnose_module, "compress_reflection",
+        lambda _reflection, _candidates, _feedback:
+            "Matched past incident: INC-114 — restart symptoms match\nFix that worked before: recycle workers",
+    )
+    result = core.diagnose_with_memory("worker restart increased traffic")
+    assert core.known_side_effect_warning(result["memories"][0]) == (
+        "Known side effect: cache stampede after restart (INC-114)"
+    )
+    assert core.known_side_effect_warning(old_record) is None
+
+
 def test_validator_rejects_id_not_recalled():
     memories = [{"id": "INC-001", "root_cause": "connection pool full exhausted", "fix": "cap pool", "text": ""}]
     answer = "Matched past incident: INC-999 — similar\nFix that worked before: cap pool"

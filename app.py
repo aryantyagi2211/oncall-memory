@@ -25,7 +25,7 @@ PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-20b"
 
 
-from core import (BANK_ID, HINDSIGHT_URL, ask_memory, associate_feedback, associate_supersessions, compute_recurring_insights, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now, suggest_supersession, supersession_badge_text)
+from core import (BANK_ID, HINDSIGHT_URL, ask_memory, associate_feedback, associate_supersessions, compute_recurring_insights, diagnose_with_memory, diagnose_without_memory, fix_track_record, get_hindsight_client, known_side_effect_warning, recalled_mttr_label, reflect_now, suggest_supersession, supersession_badge_text)
 
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 with open(os.path.join(DATA_DIR, "test_incidents.json"), encoding="utf-8") as test_file:
@@ -159,6 +159,12 @@ if diagnoses:
                     st.markdown(f"**{matched_memory['id']}** · {matched_memory['service'] or 'Service unavailable'}")
                     st.write(f"Root cause: {matched_memory['root_cause']}")
                     st.write(f"Fix: {matched_memory['fix']}")
+                    track_record = fix_track_record(matched_memory, diagnoses.get("feedback", []))
+                    if track_record["total"]:
+                        st.caption(f"Track record: worked {track_record['worked']}/{track_record['total']}")
+                    side_effect_warning = known_side_effect_warning(matched_memory)
+                    if side_effect_warning:
+                        st.warning(side_effect_warning)
                     worked_count = sum(
                         1 for record in associated_feedback
                         if record.get("outcome") == "worked"
@@ -204,6 +210,7 @@ if diagnoses:
             st.caption(f"Elapsed: {diagnoses['memory_elapsed']:.2f}s")
         if diagnoses["memory_enabled"] and diagnoses["contextual"]:
             note = st.text_input("Optional feedback note", key="feedback_note")
+            side_effect_note = st.text_input("Side effect observed (optional)", key="feedback_side_effect")
             worked_col, failed_col = st.columns(2)
             outcome = "worked" if worked_col.button("Worked", key="feedback_worked") else None
             if failed_col.button("Didn't work", key="feedback_failed"):
@@ -221,7 +228,8 @@ if diagnoses:
                     f"Suggested fix: {suggested_fix}\n"
                     f"Cited incident: {cited_incident}\n"
                     f"Outcome: {outcome}\n"
-                    f"Note: {note.strip() or 'none'}"
+                    f"Note: {note.strip() or 'none'}\n"
+                    f"Side effect observed: {side_effect_note.strip()}"
                 )
                 try:
                     get_hindsight_client().retain(
@@ -232,6 +240,7 @@ if diagnoses:
                         metadata={"record_type": "feedback", "feedback_id": feedback_id,
                                   "outcome": outcome, "incident_id": cited_incident,
                                   "suggested_fix": suggested_fix, "note": note.strip() or "none",
+                                  "side_effect_observed": side_effect_note.strip(),
                                   "timestamp": feedback_timestamp},
                     )
                 except Exception as exc:
