@@ -15,7 +15,7 @@ def memory_field(value: Any, key: str, default: Any = "") -> Any:
         return value.get(key, default)
     return getattr(value, key, default)
 
-def recalled_memory(item: Any) -> dict[str, str]:
+def recalled_memory(item: Any, log_missing: bool = True) -> dict[str, str]:
     """Recalled memory."""
     text = memory_text(item)
     metadata = memory_field(item, "metadata", {}) or {}
@@ -62,7 +62,7 @@ def recalled_memory(item: Any) -> dict[str, str]:
         "text": text,
     }
     missing = [field for field in ("id", "date", "service", "root_cause", "fix", "mttr") if not parsed[field]]
-    if missing:
+    if missing and log_missing:
         logger.warning("Recalled incident %s is missing fields: %s", incident_id or "unknown", ", ".join(missing))
     return parsed
 
@@ -100,20 +100,27 @@ def deduplicate_incidents(
 def parse_feedback(item: Any) -> dict[str, str] | None:
     """Parse feedback."""
     text = memory_text(item)
-    outcome = re.search(r"(?im)^Outcome:\s*(worked|did not work)\s*$", text)
-    if not outcome:
-        return None
     metadata = memory_field(item, "metadata", {}) or {}
-    stamp = memory_field(item, "timestamp", "") or (metadata.get("timestamp", "") if isinstance(metadata, dict) else "")
+    if not isinstance(metadata, dict):
+        metadata = {}
+    outcome_match = re.search(r"(?im)^Outcome:\s*(worked|did not work)\s*$", text)
+    outcome = (outcome_match.group(1) if outcome_match else str(metadata.get("outcome") or "")).lower()
+    if outcome not in {"worked", "did not work"}:
+        return None
+    stamp = memory_field(item, "timestamp", "") or metadata.get("timestamp", "")
     date_match = re.search(r"20\d{2}-\d{2}-\d{2}", str(stamp)) or re.search(r"(?im)^Date:\s*(20\d{2}-\d{2}-\d{2})", text)
     note_match = re.search(r"(?im)^Note:\s*(.*)$", text)
+    fix_match = re.search(r"(?im)^Suggested fix:\s*(.+)$", text)
+    incident_match = re.search(r"(?im)^Cited incident:\s*(INC-\d{3,}|none)\s*$", text)
+    feedback_id_match = re.search(r"(?im)^Feedback ID:\s*(\S+)\s*$", text)
     return {
         "text": text,
-        "outcome": outcome.group(1).lower(),
-        "fix": (re.search(r"(?im)^Suggested fix:\s*(.+)$", text) or [None, ""])[1].strip(),
-        "incident_id": (re.search(r"(?im)^Cited incident:\s*(INC-\d{3,}|none)\s*$", text) or [None, "none"])[1],
-        "date": date_match.group(0) if date_match else "date unavailable",
-        "note": note_match.group(1).strip() if note_match else "none",
+        "feedback_id": feedback_id_match.group(1) if feedback_id_match else str(metadata.get("feedback_id") or ""),
+        "outcome": outcome,
+        "fix": (fix_match.group(1).strip() if fix_match else str(metadata.get("suggested_fix") or metadata.get("fix") or "").strip()),
+        "incident_id": (incident_match.group(1) if incident_match else str(metadata.get("incident_id") or metadata.get("cited_incident_id") or "none")),
+        "date": date_match.group(0) if date_match else str(metadata.get("date") or "date unavailable"),
+        "note": note_match.group(1).strip() if note_match else str(metadata.get("note") or "none"),
     }
 
 

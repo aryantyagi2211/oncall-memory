@@ -62,8 +62,13 @@ def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]], 
         "- Follow the relevant service runbook and verify recovery."
     )
 
-def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident_text: str = "", feedback: list[dict[str, str]] | None = None) -> str:
-    """Validate memory answer."""
+def memory_answer_validation_reasons(
+    answer: str,
+    memories: list[dict[str, str]],
+    incident_text: str = "",
+    feedback: list[dict[str, str]] | None = None,
+) -> list[str]:
+    """Return source-validation failures for a memory answer."""
     allowed_ids = {m.get("id", "") for m in memories if m.get("id")}
     supersession_records = [record for record in (feedback or []) if record.get("record_type") == "supersession"]
     for record in supersession_records:
@@ -78,19 +83,48 @@ def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident
     selected = next((m for m in memories if match_id and m.get("id") == match_id.group(0)), None)
     failed_records = [record for record in (feedback or []) if record.get("outcome") == FEEDBACK_OUTCOME_FAILED]
     failed_ids = {incident_id for record in failed_records for incident_id in record.get("matched_incident_ids", [])}
-    recalled_ids = {memory.get("id") for memory in memories}
     superseded_ids = {record["old_id"] for record in supersession_records}
     superseded_selection = bool(selected and selected.get("id") in superseded_ids)
-    valid = bool(matched_line and fix_line and not re.search(r"Relevant recalled history is available|placeholder|<ID>|<exact fix>", answer, re.I))
+    reasons = []
+    if not matched_line:
+        reasons.append("missing Matched past incident line")
+    if not fix_line:
+        reasons.append("missing Fix that worked before line")
+    if re.search(r"Relevant recalled history is available|placeholder|<ID>|<exact fix>", answer, re.I):
+        reasons.append("answer contains placeholder text")
     if no_match:
-        valid = valid and bool(selected) and fix_text == "No proven fix for this alert."
+        if not selected:
+            reasons.append("closest incident is not in recalled data")
+        if fix_text != "No proven fix for this alert.":
+            reasons.append("no-match response does not use the required no-proven-fix text")
     else:
-        valid = valid and bool(selected and selected.get("root_cause") and selected.get("fix") and selected.get("id") not in failed_ids and not superseded_selection)
+        if not selected:
+            reasons.append("cited incident is not in recalled data")
+        elif not selected.get("root_cause") or not selected.get("fix"):
+            reasons.append("cited incident has missing root cause or fix")
+        if selected and selected.get("id") in failed_ids:
+            reasons.append("cited incident has a fix marked failed")
+        if superseded_selection:
+            reasons.append("cited incident is superseded")
         if selected:
-            valid = valid and fix_text == selected.get("fix", "").strip()
-    valid = valid and not (cited_ids - allowed_ids)
-    if not valid:
-        logger.warning("Memory answer failed source validation; using recalled-data template.")
+            if fix_text != selected.get("fix", "").strip():
+                reasons.append("fix text does not exactly match the recalled fix")
+    unsupported_ids = cited_ids - allowed_ids
+    if unsupported_ids:
+        reasons.append("unsupported incident IDs: " + ", ".join(sorted(unsupported_ids)))
+    return reasons
+
+
+def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident_text: str = "", feedback: list[dict[str, str]] | None = None) -> str:
+    """Validate memory answer."""
+    failed_records = [record for record in (feedback or []) if record.get("outcome") == FEEDBACK_OUTCOME_FAILED]
+    failed_ids = {incident_id for record in failed_records for incident_id in record.get("matched_incident_ids", [])}
+    supersession_records = [record for record in (feedback or []) if record.get("record_type") == "supersession"]
+    superseded_ids = {record["old_id"] for record in supersession_records}
+    recalled_ids = {memory.get("id") for memory in memories}
+    reasons = memory_answer_validation_reasons(answer, memories, incident_text, feedback)
+    if reasons:
+        logger.warning("Memory answer failed source validation (%s); using recalled-data template.", "; ".join(reasons))
         answer = _memory_answer_fallback(incident_text, memories, failed_ids | superseded_ids)
     # Remove ungrounded model-generated failure claims; only recalled feedback may create notices.
     answer = re.sub(r"(?im)^.*was marked ['\"]Didn't work['\"].*$\n?", "", answer)

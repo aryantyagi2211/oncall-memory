@@ -9,6 +9,57 @@ from .config import BANK_ID, HINDSIGHT_URL, HINDSIGHT_API_KEY, HINDSIGHT_TIMEOUT
 from .parsing import memory_text, memory_field, recalled_memory, deduplicate_incidents, parse_feedback, parse_supersession
 logger = logging.getLogger(__name__)
 _executor = ThreadPoolExecutor(max_workers=4)
+_REQUIRED_INCIDENT_FIELDS = ("id", "date", "service", "root_cause", "fix", "mttr")
+
+
+def _parse_incident_fragments(items: list[Any]) -> list[dict[str, str]]:
+    """Parse recalled incident fragments and emit one completeness summary."""
+    facts = [recalled_memory(item, log_missing=False) for item in items if memory_text(item)]
+    merged = deduplicate_incidents(facts, limit=len(facts))
+    complete = [
+        incident for incident in merged
+        if all(incident.get(field) for field in _REQUIRED_INCIDENT_FIELDS)
+    ]
+    partial = [
+        incident for incident in merged
+        if not all(incident.get(field) for field in _REQUIRED_INCIDENT_FIELDS)
+    ]
+    unknown_id_fragments = [fact for fact in facts if not fact.get("id")]
+    details = [
+        f"{incident.get('id') or 'unknown'} missing "
+        + ",".join(field for field in _REQUIRED_INCIDENT_FIELDS if not incident.get(field))
+        for incident in partial
+    ]
+    if unknown_id_fragments:
+        details.append(f"{len(unknown_id_fragments)} fragment(s) without an incident ID")
+    message = (
+        "Hindsight recall parsed %d fragments, %d complete incidents, %d partial incidents%s"
+        % (len(facts), len(complete), len(partial) + len(unknown_id_fragments),
+           f"; details: {'; '.join(details)}" if details else "")
+    )
+    (logger.warning if details else logger.info)(message)
+    return facts
+
+
+def _deduplicate_feedback_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Collapse repeated recall fragments for the same retained feedback record."""
+    unique = {}
+    for record in records:
+        key = record.get("feedback_id") or (
+            record.get("outcome"), record.get("incident_id"), record.get("fix"),
+            record.get("date"), record.get("note"), record.get("text"),
+        )
+        unique[key] = record
+    return list(unique.values())
+
+
+def _deduplicate_supersession_records(records: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Collapse repeated recall fragments for the same supersession record."""
+    unique = {
+        (record.get("old_id"), record.get("new_id"), record.get("relation"), record.get("date"), record.get("reason")): record
+        for record in records
+    }
+    return list(unique.values())
 
 def get_hindsight_client() -> Hindsight:
     """Get hindsight client."""
@@ -23,11 +74,7 @@ def recall_incidents(
 ) -> tuple[list[dict[str, str]], list[dict[str, str]], str]:
     """Recall and reflect on incidents relevant to the alert."""
     recalled = client.recall(bank_id=bank_id, query=incident)
-    facts = [
-        recalled_memory(item)
-        for item in memory_field(recalled, "results", [])
-        if memory_text(item)
-    ]
+    facts = _parse_incident_fragments(memory_field(recalled, "results", []))
 
     reflection = client.reflect(bank_id=bank_id, query=incident)
     reflection_text = memory_text(reflection)
@@ -42,13 +89,10 @@ def _recall_with_timeout(client: Hindsight, incident: str, bank_id: str, limit: 
             recall_kwargs["max_tokens"] = 8192
         recalled = client.recall(**recall_kwargs)
         items = [item for item in memory_field(recalled, "results", []) if memory_text(item)]
-        feedback = [record for item in items if (record := parse_feedback(item))]
-        supersessions = [record for item in items if (record := parse_supersession(item))]
-        facts = [
-            recalled_memory(item)
-            for item in items
-            if memory_text(item) and not parse_feedback(item) and not parse_supersession(item)
-        ]
+        feedback = _deduplicate_feedback_records([record for item in items if (record := parse_feedback(item))])
+        supersessions = _deduplicate_supersession_records([record for item in items if (record := parse_supersession(item))])
+        incident_items = [item for item in items if not parse_feedback(item) and not parse_supersession(item)]
+        facts = _parse_incident_fragments(incident_items)
         reflection = client.reflect(bank_id=bank_id, query=incident)
         return deduplicate_incidents(facts, limit=limit), facts, memory_text(reflection), feedback + supersessions
 

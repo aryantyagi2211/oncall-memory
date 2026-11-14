@@ -212,11 +212,14 @@ if diagnoses:
                 suggested = re.search(r"(?im)^Fix that worked before:\s*(.+)$", diagnoses["contextual"])
                 cited = re.search(r"\bINC-\d{3,}\b", diagnoses["contextual"])
                 feedback_id = f"feedback-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-{uuid.uuid4().hex[:8]}"
+                suggested_fix = suggested.group(1).strip() if suggested else "No specific fix was suggested."
+                cited_incident = cited.group(0) if cited else "none"
+                feedback_timestamp = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
                 feedback_text = (
                     f"Feedback ID: {feedback_id}\n"
                     f"New alert summary: {' '.join(st.session_state.get('current_incident', '').split())[:500]}\n"
-                    f"Suggested fix: {suggested.group(1).strip() if suggested else 'No specific fix was suggested.'}\n"
-                    f"Cited incident: {cited.group(0) if cited else 'none'}\n"
+                    f"Suggested fix: {suggested_fix}\n"
+                    f"Cited incident: {cited_incident}\n"
                     f"Outcome: {outcome}\n"
                     f"Note: {note.strip() or 'none'}"
                 )
@@ -224,9 +227,12 @@ if diagnoses:
                     get_hindsight_client().retain(
                         bank_id=BANK_ID, content=feedback_text,
                         context="feedback on incident-response recommendation",
-                        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        timestamp=feedback_timestamp,
                         document_id=feedback_id,
-                        metadata={"record_type": "feedback", "outcome": outcome, "incident_id": cited.group(0) if cited else "none"},
+                        metadata={"record_type": "feedback", "feedback_id": feedback_id,
+                                  "outcome": outcome, "incident_id": cited_incident,
+                                  "suggested_fix": suggested_fix, "note": note.strip() or "none",
+                                  "timestamp": feedback_timestamp},
                     )
                 except Exception as exc:
                     st.error(f"Could not save feedback: {exc}")

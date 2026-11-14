@@ -2,13 +2,79 @@
   "bank_id": "oncall-feedback-demo",
   "alert": "After Redis promotion, auth requests time out to 10.4.8.12; redis.exceptions.ConnectionError: connection refused; new primary is healthy.",
   "before": {
-    "best_match_id": "INC-033",
-    "fix": "Recycled connections and workers, lowered resolver TTL, and validated new-primary traffic in connection metrics."
+    "best_match_id": "INC-018",
+    "fix": "Flushed resolver caches, recycled workers, reduced application DNS TTL to 10s, and confirmed connections targeted the new primary.",
+    "diagnostics": {
+      "selection_candidate_ids_in_order": [
+        "INC-018",
+        "INC-017",
+        "INC-002",
+        "INC-015"
+      ],
+      "validator": {
+        "accepted_llm_answer": true,
+        "used_template": false,
+        "rejection_reasons": []
+      }
+    }
   },
-  "feedback_document_id": "feedback-20261114T093327800686Z-c273f971",
+  "feedback_document_id": "feedback-20261114T094912094363Z-02b4b93e",
+  "feedback_poll": {
+    "recalled": true,
+    "seconds_waited": 1.4
+  },
   "after": {
-    "best_match_id": "INC-033",
-    "fix": "Recycled connections and workers, lowered resolver TTL, and validated new-primary traffic in connection metrics."
+    "best_match_id": "INC-002",
+    "fix": "Reduced DNS cache TTL from 300s to 15s and restarted all 12 auth workers.",
+    "diagnostics": {
+      "recalled_feedback_records_count": 3,
+      "failed_incident_ids_detected": [
+        "INC-018",
+        "INC-033"
+      ],
+      "selection_candidate_ids_in_order": [
+        "INC-017",
+        "INC-016",
+        "INC-002"
+      ],
+      "candidate_list_in_order": [
+        {
+          "incident_id": "INC-017",
+          "failed_count": 0,
+          "worked_count": 0,
+          "eligible_for_best_match": true
+        },
+        {
+          "incident_id": "INC-016",
+          "failed_count": 0,
+          "worked_count": 0,
+          "eligible_for_best_match": true
+        },
+        {
+          "incident_id": "INC-002",
+          "failed_count": 0,
+          "worked_count": 0,
+          "eligible_for_best_match": true
+        },
+        {
+          "incident_id": "INC-033",
+          "failed_count": 2,
+          "worked_count": 0,
+          "eligible_for_best_match": false
+        },
+        {
+          "incident_id": "INC-018",
+          "failed_count": 1,
+          "worked_count": 0,
+          "eligible_for_best_match": false
+        }
+      ],
+      "validator": {
+        "accepted_llm_answer": true,
+        "used_template": false,
+        "rejection_reasons": []
+      }
+    }
   },
-  "failed_fix_avoided": false
+  "failed_fix_avoided": true
 }

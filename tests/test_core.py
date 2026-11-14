@@ -1,5 +1,6 @@
 import sys
 import inspect
+import logging
 from pathlib import Path
 from hindsight_client import Hindsight
 
@@ -170,6 +171,49 @@ def test_no_outdated_mention_without_recalled_record(monkeypatch):
 def test_invalid_supersession_old_id_is_rejected():
     suggestion = '{"old_id":"INC-999","relation":"contradicts","reason":"Different fix."}'
     assert core.validate_supersession_suggestion(suggestion, [_memory("INC-404", "valid fix")]) is None
+
+
+def test_feedback_metadata_fragment_demotes_cited_incident(monkeypatch):
+    memories = [_memory("INC-501", "restart Redis"), _memory("INC-502", "route to healthy primary")]
+    feedback_fragment = {
+        "text": "Outcome: did not work",
+        "metadata": {
+            "record_type": "feedback",
+            "feedback_id": "feedback-proof-1",
+            "outcome": "did not work",
+            "incident_id": "INC-501",
+            "suggested_fix": "restart Redis",
+        },
+    }
+    parsed_feedback = core.parse_feedback(feedback_fragment)
+    assert parsed_feedback["incident_id"] == "INC-501"
+    assert parsed_feedback["fix"] == "restart Redis"
+    monkeypatch.setattr(diagnose_module, "get_hindsight_client", lambda: object())
+    monkeypatch.setattr(diagnose_module, "_recall_with_timeout", lambda *args: ((memories, [], "", [parsed_feedback]), ""))
+
+    def answer_from_candidates(_reflection, candidates, _feedback):
+        assert [memory["id"] for memory in candidates] == ["INC-502"]
+        return "Matched past incident: INC-502 — same failover symptoms\nFix that worked before: route to healthy primary"
+
+    monkeypatch.setattr(diagnose_module, "compress_reflection", answer_from_candidates)
+    result = core.diagnose_with_memory("Redis failover connections refused")
+    assert result["memories"][0]["id"] == "INC-502"
+    assert "Trying INC-502 instead" in result["answer"]
+
+
+def test_partial_recall_logs_one_summary_with_parse_details(caplog):
+    fragments = [
+        {"text": "Incident ID: INC-601\nService: auth"},
+        {"text": "Incident ID: INC-602\nRoot cause: incomplete"},
+    ]
+    with caplog.at_level(logging.WARNING, logger="oncall_memory.memory"):
+        memory_module._parse_incident_fragments(fragments)
+    warnings = [record.message for record in caplog.records if record.name == "oncall_memory.memory"]
+    assert len(warnings) == 1
+    assert "2 fragments" in warnings[0]
+    assert "2 partial incidents" in warnings[0]
+    assert "INC-601 missing" in warnings[0]
+    assert "INC-602 missing" in warnings[0]
 
 
 def test_hindsight_call_keywords_match_installed_client_signatures():
