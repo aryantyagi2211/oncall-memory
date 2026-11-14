@@ -1,0 +1,72 @@
+[
+  {
+    "id": "TEST-01",
+    "alert_log": "checkout-api returns 503 under flash sale load; redis.exceptions.ConnectionError: max number of clients reached; pool wait p99=2100ms",
+    "correct_root_cause": "The service opened a separate oversized Redis pool in every worker, exceeding the shared server connection budget.",
+    "correct_fix": "Cap per-worker pools against the server-wide connection budget, reduce excessive workers, and monitor active clients.",
+    "relevant_incident_ids": ["INC-001", "INC-016", "INC-017"]
+  },
+  {
+    "id": "TEST-02",
+    "alert_log": "After Redis promotion, auth requests time out to 10.4.8.12; redis.exceptions.ConnectionError: connection refused; new primary is healthy.",
+    "correct_root_cause": "Auth workers retained a stale DNS answer for the retired primary after failover.",
+    "correct_fix": "Flush resolver state, recycle stale connections/workers, and lower application DNS cache TTL.",
+    "relevant_incident_ids": ["INC-002", "INC-015", "INC-018", "INC-033"]
+  },
+  {
+    "id": "TEST-03",
+    "alert_log": "order-events lag rising; kafka.errors.CommitFailedError: group has already rebalanced; trace shows synchronous tax lookup taking 9 seconds before poll.",
+    "correct_root_cause": "Inline enrichment blocks consumer polling beyond max.poll.interval.ms.",
+    "correct_fix": "Move enrichment to a bounded worker queue, reduce batch size, and confirm processing stays within the poll interval.",
+    "relevant_incident_ids": ["INC-003", "INC-020", "INC-030", "INC-032"]
+  },
+  {
+    "id": "TEST-04",
+    "alert_log": "invoice-api intermittently returns SQLSTATE 40P01; deadlock graph shows settlement locks invoice then payment while adjustment locks payment then invoice.",
+    "correct_root_cause": "Two transaction paths acquire the same rows in opposite order.",
+    "correct_fix": "Standardize row lock ordering in both paths and use bounded retries for deadlock victims.",
+    "relevant_incident_ids": ["INC-004", "INC-026", "INC-035", "INC-038", "INC-040"]
+  },
+  {
+    "id": "TEST-05",
+    "alert_log": "Redis CPU 99%, search p99 elevated; commandstats show 27 KEYS calls/s from nightly namespace cleanup; timeouts in redis.get.",
+    "correct_root_cause": "A cleanup scan uses blocking KEYS against the full production keyspace.",
+    "correct_fix": "Replace KEYS with rate-limited cursor-based SCAN batches and schedule cleanup off peak.",
+    "relevant_incident_ids": ["INC-006", "INC-019", "INC-027"]
+  },
+  {
+    "id": "TEST-06",
+    "alert_log": "tenant reports endpoint times out; PostgreSQL Seq Scan on audit_events (42M rows); query filters tenant_id and created_at, DB CPU otherwise normal.",
+    "correct_root_cause": "The composite index required by the tenant and time filters was dropped during migration.",
+    "correct_fix": "Create the composite index concurrently, verify the query plan, and add migration validation for index presence.",
+    "relevant_incident_ids": ["INC-014", "INC-025", "INC-031", "INC-037", "INC-039"]
+  },
+  {
+    "id": "TEST-07",
+    "alert_log": "Kubernetes shows OOMKilled and rising memory; initial suspicion is an unbounded application cache, but heap profile is flat and node memory pressure began after log-agent rollout.",
+    "correct_root_cause": "The node log agent has a memory leak and evicts pods under node pressure; application heap is not growing.",
+    "correct_fix": "Roll back the log-agent version, drain affected nodes safely, and add node-level memory alerts before changing application cache limits.",
+    "relevant_incident_ids": ["INC-005", "INC-021", "INC-034"]
+  },
+  {
+    "id": "TEST-08",
+    "alert_log": "JWT verification failures begin after key rotation; initial suspicion is stale JWKS cache, but verifier has fetched the new kid and issuer reports a 401 due to incorrect audience claim.",
+    "correct_root_cause": "A deployment changed the token audience to the staging value, so valid signatures fail application audience validation.",
+    "correct_fix": "Restore the production audience configuration and validate issuer, audience, and signature separately; retain the JWKS cache settings.",
+    "relevant_incident_ids": ["INC-010", "INC-029"]
+  },
+  {
+    "id": "TEST-09",
+    "alert_log": "New gRPC requests fail with status UNAVAILABLE; resolver returns an IPv6 address, but the service is bound only to IPv4 and no upstream health checks are failing.",
+    "correct_root_cause": "A resolver configuration change prefers IPv6 while the application listener is IPv4-only.",
+    "correct_fix": "Align listener and resolver address families or bind dual stack, then validate health checks over the selected address family.",
+    "relevant_incident_ids": []
+  },
+  {
+    "id": "TEST-10",
+    "alert_log": "All scheduled jobs start exactly one hour late after a base image update; host clocks are synchronized, but the container timezone changed and scheduler interprets local wall time.",
+    "correct_root_cause": "The image update changed the scheduler container timezone from UTC to a daylight-offset local timezone.",
+    "correct_fix": "Set TZ=UTC explicitly, schedule using timezone-aware UTC timestamps, and verify next-run calculations before deployment.",
+    "relevant_incident_ids": []
+  }
+]

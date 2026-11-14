@@ -2,6 +2,20 @@
 
 OnCall Memory is a lightweight incident-response assistant. It diagnoses pasted alerts and log snippets with Groq, then uses Hindsight as long-term memory so resolved incidents can inform future responses.
 
+## Screenshots
+
+**1. Memory OFF vs ON (INC-001 match)**
+
+![Memory OFF vs ON (INC-001 match)](screenshots/captureit_07-11-2026_at_16-26-29.png)
+
+**2. Recalled memories**
+
+![Recalled memories](screenshots/captureit_07-11-2026_at_16-27-30.png)
+
+**3. Learning: a newly saved incident recalled**
+
+![Learning: a newly saved incident recalled](screenshots/captureit_07-11-2026_at_16-34-05.png)
+
 ## Architecture
 
 ```text
