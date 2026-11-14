@@ -1,0 +1,21 @@
+test_id,mode,retrieved_ids,root_cause_correct,fix_score,judge_reason,error
+TEST-01,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-02,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-01,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-03,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-02,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-04,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-03,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-05,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-04,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-05,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-06,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-07,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-06,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-08,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-07,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-09,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-08,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-10,OFF,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-09,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range
+TEST-10,ON,,,,Not scored because the run errored.,Groq judge failed after 3 attempts: list index out of range

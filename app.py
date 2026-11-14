@@ -2,6 +2,8 @@ import logging
 import os
 import re
 import time
+import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any
 
@@ -22,7 +24,7 @@ PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-20b"
 
 
-from core import (BANK_ID, HINDSIGHT_URL, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label)
+from core import (BANK_ID, HINDSIGHT_URL, diagnose_with_memory, diagnose_without_memory, get_hindsight_client, recalled_mttr_label, reflect_now)
 
 st.set_page_config(page_title="OnCall Memory", page_icon="🛠️", layout="wide")
 st.title("OnCall Memory")
@@ -52,19 +54,35 @@ if st.button("Diagnose", type="primary"):
         st.warning("Paste an alert and log snippet before diagnosing.")
     else:
         st.session_state["current_incident"] = incident.strip()
-        with st.spinner("Analyzing the incident..."):
-            baseline = diagnose_without_memory(incident.strip())
-            memory_result = diagnose_with_memory(incident.strip()) if memory_enabled else {
-                "answer": None, "recalled_incidents": [], "reflection": "", "error": "",
-                "memories": [], "raw_facts": [],
-            }
-        if memory_result["error"]:
-            st.warning(f"Hindsight memory could not be loaded: {memory_result['error']}")
+        alert_text = incident.strip()
+        cached = st.session_state.setdefault("diagnosis_cache", {}).setdefault(alert_text, {})
+        need_baseline = "baseline" not in cached
+        need_memory = memory_enabled and "memory" not in cached
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            baseline_future = pool.submit(diagnose_without_memory, alert_text) if need_baseline else None
+            memory_future = pool.submit(diagnose_with_memory, alert_text) if need_memory else None
+            with st.status("Analyzing incident...", expanded=True) as status:
+                status.write("Recalling past incidents..." if need_memory else "Using cached memory answer..." if memory_enabled else "Memory is off.")
+                if memory_future:
+                    memory_result = memory_future.result()
+                    status.write("Reflecting...")
+                    status.write("Writing answer...")
+                    cached["memory"] = memory_result
+                if baseline_future:
+                    cached["baseline"] = baseline_future.result()
+                status.update(label="Diagnosis ready", state="complete", expanded=False)
+        if need_memory and cached["memory"]["error"]:
+            st.warning(f"Hindsight memory could not be loaded: {cached['memory']['error']}")
+        memory_result = cached.get("memory", {
+            "answer": None, "recalled_incidents": [], "reflection": "", "error": "",
+            "memories": [], "raw_facts": [], "feedback": [],
+        })
         st.session_state["diagnoses"] = {
-            "baseline": baseline,
+            "baseline": cached.get("baseline", ""),
             "contextual": memory_result["answer"],
             "memories": memory_result["memories"],
             "raw_facts": memory_result["raw_facts"],
+            "feedback": memory_result.get("feedback", []),
             "reflection": memory_result["reflection"],
             "memory_error": memory_result["error"],
             "memory_enabled": memory_enabled,
@@ -91,6 +109,22 @@ if diagnoses:
                 ),
                 None,
             )
+            cited_id = match.group(1) if match else None
+            valid_citation = bool(
+                matched_memory and matched_memory.get("root_cause") and matched_memory.get("fix")
+                and not re.search(r"(?i)no closely matching past incident", diagnoses["contextual"] or "")
+            )
+            is_top = bool(valid_citation and diagnoses["memories"] and diagnoses["memories"][0]["id"] == cited_id)
+            confidence = "High" if is_top else "Medium" if valid_citation else "Low"
+            with st.container(border=True):
+                st.markdown(f"**Best match · {confidence} confidence**")
+                if valid_citation:
+                    st.markdown(f"**{matched_memory['id']}** · {matched_memory['service'] or 'Service unavailable'}")
+                    st.write(f"Root cause: {matched_memory['root_cause']}")
+                    st.write(f"Fix: {matched_memory['fix']}")
+                else:
+                    st.write("No valid incident citation or close match was found.")
+                st.caption("Confidence is a heuristic based on citation validation and recall order.")
             if matched_memory:
                 date_label = matched_memory["date"] or "date unavailable"
                 mttr_label = recalled_mttr_label(
@@ -111,6 +145,36 @@ if diagnoses:
 
         if diagnoses["memory_error"]:
             st.caption("Memory could not be loaded; the result contains no recalled history.")
+        if diagnoses["memory_enabled"] and diagnoses["contextual"]:
+            note = st.text_input("Optional feedback note", key="feedback_note")
+            worked_col, failed_col = st.columns(2)
+            outcome = "worked" if worked_col.button("Worked", key="feedback_worked") else None
+            if failed_col.button("Didn't work", key="feedback_failed"):
+                outcome = "did not work"
+            if outcome:
+                suggested = re.search(r"(?im)^Fix that worked before:\s*(.+)$", diagnoses["contextual"])
+                cited = re.search(r"\bINC-\d{3,}\b", diagnoses["contextual"])
+                feedback_id = f"feedback-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%S%fZ')}-{uuid.uuid4().hex[:8]}"
+                feedback_text = (
+                    f"Feedback ID: {feedback_id}\n"
+                    f"New alert summary: {' '.join(st.session_state.get('current_incident', '').split())[:500]}\n"
+                    f"Suggested fix: {suggested.group(1).strip() if suggested else 'No specific fix was suggested.'}\n"
+                    f"Cited incident: {cited.group(0) if cited else 'none'}\n"
+                    f"Outcome: {outcome}\n"
+                    f"Note: {note.strip() or 'none'}"
+                )
+                try:
+                    get_hindsight_client().retain(
+                        bank_id=BANK_ID, content=feedback_text,
+                        context="feedback on incident-response recommendation",
+                        timestamp=datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        document_id=feedback_id,
+                        metadata={"record_type": "feedback", "outcome": outcome, "incident_id": cited.group(0) if cited else "none"},
+                    )
+                except Exception as exc:
+                    st.error(f"Could not save feedback: {exc}")
+                else:
+                    st.caption("Feedback saved.")
 else:
     diagnoses = {
         "memories": [],
@@ -144,6 +208,19 @@ with st.expander("Raw recalled facts", expanded=False):
     else:
         st.caption("No raw recalled facts are available.")
 
+with st.expander("What the agent learned", expanded=False):
+    if st.button("Reflect now", key="reflect_now"):
+        reflect_query = st.session_state.get("current_incident", "").strip()
+        if not reflect_query:
+            st.info("Paste or diagnose an incident before asking for reflection.")
+        else:
+            try:
+                with st.spinner("Asking Hindsight to reflect..."):
+                    reflection_result = reflect_now(reflect_query, bank_id=BANK_ID)
+                st.write(reflection_result or "Hindsight returned no reflection.")
+            except Exception as exc:
+                st.error(f"Hindsight reflection failed: {exc}")
+
 st.divider()
 st.subheader("Mark resolved")
 st.caption("Save a concise postmortem so future diagnoses can learn from it.")
@@ -159,18 +236,20 @@ if resolved:
     elif not root_cause.strip() or not fix_applied.strip():
         st.warning("Enter both the root cause and the fix applied.")
     else:
-        incident_number = st.session_state.get("next_incident_number", 16)
-        incident_id = f"INC-{incident_number:03d}"
-        resolved_at = datetime.now(timezone.utc).replace(microsecond=0)
+        resolved_at = datetime.now(timezone.utc)
         incident_date = resolved_at.date().isoformat()
         resolved_timestamp = resolved_at.isoformat().replace("+00:00", "Z")
+        incident_id = f"INC-{resolved_at.strftime('%Y%m%d%H%M%S%f')}{uuid.uuid4().int % 1000000:06d}"
         postmortem = (
             f"Incident ID: {incident_id}\n"
+            f"Service: Unknown\n"
+            "Severity: Unknown\n"
             f"Date: {incident_date}\n"
-            "Resolved incident postmortem\n"
-            f"Incident alert and logs:\n{original_incident}\n"
+            f"Alert/error log: {original_incident}\n"
             f"Root cause: {root_cause.strip()}\n"
-            f"Exact fix: {fix_applied.strip()}"
+            f"Fix applied: {fix_applied.strip()}\n"
+            "MTTR: Unknown\n"
+            "Runbook: Unknown"
         )
         try:
             get_hindsight_client().retain(
@@ -178,14 +257,20 @@ if resolved:
                 content=postmortem,
                 context="resolved production incident postmortem",
                 timestamp=resolved_timestamp,
+                document_id=incident_id,
                 metadata={
                     "incident_id": incident_id,
                     "date": incident_date,
+                    "service": "Unknown",
+                    "severity": "Unknown",
+                    "root_cause": root_cause.strip(),
+                    "fix": fix_applied.strip(),
                     "exact_fix": fix_applied.strip(),
+                    "root_cause_category": "unknown",
+                    "mttr_minutes": "Unknown",
                 },
             )
         except Exception as exc:
             st.error(f"Could not save the postmortem to Hindsight: {exc}")
         else:
-            st.session_state["next_incident_number"] = incident_number + 1
             st.success(f"Saved to memory as {incident_id}")

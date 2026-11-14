@@ -3,3 +3,4 @@ hindsight-client
 groq
 python-dotenv
 matplotlib
+pytest

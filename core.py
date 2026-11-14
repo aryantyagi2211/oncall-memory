@@ -17,7 +17,7 @@ GROQ_API_KEY = os.getenv("GROQ_API_KEY", "").strip()
 BANK_ID = "oncall-v3"
 PRIMARY_MODEL = "openai/gpt-oss-120b"
 FALLBACK_MODEL = "openai/gpt-oss-20b"
-HINDSIGHT_TIMEOUT_SECONDS = 15
+HINDSIGHT_TIMEOUT_SECONDS = float(os.getenv("HINDSIGHT_TIMEOUT", "15"))
 GROQ_TOTAL_DEADLINE_SECONDS = 60
 _executor = ThreadPoolExecutor(max_workers=4)
 
@@ -157,6 +157,19 @@ def build_memory_context(memories: list[dict[str, str]]) -> str:
             )
         )
     return "\n\n---\n\n".join(entries)
+
+
+def parse_feedback(item: Any) -> dict[str, str] | None:
+    text = memory_text(item)
+    outcome = re.search(r"(?im)^Outcome:\s*(worked|did not work)\s*$", text)
+    if not outcome:
+        return None
+    return {
+        "text": text,
+        "outcome": outcome.group(1).lower(),
+        "fix": (re.search(r"(?im)^Suggested fix:\s*(.+)$", text) or [None, ""])[1].strip(),
+        "incident_id": (re.search(r"(?im)^Cited incident:\s*(INC-\d{3,}|none)\s*$", text) or [None, "none"])[1],
+    }
 
 
 class GroqCompletionError(RuntimeError):
@@ -309,7 +322,7 @@ def ask_groq(incident: str) -> str:
 
 
 def compress_reflection(
-    reflection: str, memories: list[dict[str, str]]
+    reflection: str, memories: list[dict[str, str]], feedback: list[dict[str, str]] | None = None
 ) -> str:
     complete_memories = [m for m in memories if m.get("root_cause") and m.get("fix")]
     context = build_memory_context(complete_memories)
@@ -329,7 +342,9 @@ def compress_reflection(
                 "the fix line must say 'No proven fix for this alert.' Never present the "
                 "closest incident's fix as proven. Use only recalled fields. Each next step "
                 "based on history must end with its source ID in brackets, e.g. [INC-004]. "
-                "Never use placeholders such as 'Relevant recalled history is available'."
+                "Never use placeholders such as 'Relevant recalled history is available'. "
+                "If feedback says a fix did not work, explicitly include 'Previously failed: <fix>' "
+                "and do not describe that fix as proven or recommend it."
             ),
         },
         {
@@ -337,6 +352,7 @@ def compress_reflection(
             "content": (
                 f"HINDSIGHT REFLECT ANSWER:\n{reflection or 'No reflect answer returned.'}"
                 f"\n\nRECALLED MEMORIES:\n{context}"
+                f"\n\nRECALLED FEEDBACK:\n{chr(10).join(f['text'] for f in (feedback or [])) or 'No feedback records.'}"
             ),
         },
     ]
@@ -472,7 +488,7 @@ def _memory_answer_fallback(incident_text: str, memories: list[dict[str, str]]) 
     )
 
 
-def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident_text: str = "") -> str:
+def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident_text: str = "", feedback: list[dict[str, str]] | None = None) -> str:
     allowed_ids = {m.get("id", "") for m in memories if m.get("id")}
     cited_ids = set(re.findall(r"\bINC-\d{3,}\b", answer))
     matched_line = re.search(r"(?im)^Matched past incident:\s*(.*)$", answer)
@@ -492,20 +508,28 @@ def validate_memory_answer(answer: str, memories: list[dict[str, str]], incident
     valid = valid and not (cited_ids - allowed_ids)
     if not valid:
         logger.warning("Memory answer failed source validation; using recalled-data template.")
-        return _memory_answer_fallback(incident_text, memories)
+        answer = _memory_answer_fallback(incident_text, memories)
+    failed_fixes = [item.get("fix", "").strip() for item in (feedback or []) if item.get("outcome") == "did not work" and item.get("fix")]
+    for failed_fix in failed_fixes:
+        if failed_fix.lower() in answer.lower():
+            answer = re.sub(r"(?im)^Fix that worked before:.*$", "Fix that worked before: No proven fix for this alert.", answer)
+        if f"Previously failed: {failed_fix}" not in answer:
+            answer += f"\nPreviously failed: {failed_fix}"
     return answer
 
 
 def _recall_with_timeout(client: Hindsight, incident: str, bank_id: str):
     def call():
         recalled = client.recall(bank_id=bank_id, query=incident)
+        items = [item for item in memory_field(recalled, "results", []) if memory_text(item)]
+        feedback = [record for item in items if (record := parse_feedback(item))]
         facts = [
             recalled_memory(item)
-            for item in memory_field(recalled, "results", [])
-            if memory_text(item)
+            for item in items
+            if memory_text(item) and not parse_feedback(item)
         ]
         reflection = client.reflect(bank_id=bank_id, query=incident)
-        return deduplicate_incidents(facts), facts, memory_text(reflection)
+        return deduplicate_incidents(facts), facts, memory_text(reflection), feedback
 
     last_error = None
     for attempt in range(2):
@@ -519,7 +543,7 @@ def _recall_with_timeout(client: Hindsight, incident: str, bank_id: str):
             last_error = f"Hindsight recall/reflect failed: {exc}"
         if attempt == 0:
             logger.warning("%s Retrying once.", last_error)
-    return ([], [], ""), last_error
+    return ([], [], "", []), last_error
 
 
 def diagnose_without_memory(incident_text: str) -> str:
@@ -532,20 +556,23 @@ def diagnose_without_memory(incident_text: str) -> str:
 
 def diagnose_with_memory(incident_text: str, bank_id: str | None = None) -> dict:
     target_bank = bank_id or BANK_ID
-    memories, raw_facts, reflection, error = [], [], "", ""
+    memories, raw_facts, reflection, feedback, error = [], [], "", [], ""
     try:
         client = get_hindsight_client()
-        (memories, raw_facts, reflection), error = _recall_with_timeout(
+        (memories, raw_facts, reflection, feedback), error = _recall_with_timeout(
             client, incident_text, target_bank
         )
     except Exception as exc:
         error = f"Hindsight client unavailable: {exc}"
 
     try:
-        answer = validate_memory_answer(compress_reflection(reflection, memories), memories, incident_text)
+        answer = validate_memory_answer(compress_reflection(reflection, memories, feedback), memories, incident_text, feedback)
     except Exception as exc:
         logger.error("Memory diagnosis unavailable: %s", exc)
         answer = recalled_memory_fallback(memories)
+        for item in feedback:
+            if item.get("outcome") == "did not work" and item.get("fix"):
+                answer += f"\nPreviously failed: {item['fix']}"
     return {
         "answer": answer,
         "recalled_incidents": [memory["id"] for memory in memories if memory["id"]],
@@ -553,6 +580,24 @@ def diagnose_with_memory(incident_text: str, bank_id: str | None = None) -> dict
         "error": error,
         "memories": memories,
         "raw_facts": raw_facts,
+        "feedback": feedback,
     }
+
+
+def reflect_now(incident_text: str, bank_id: str = BANK_ID) -> str:
+    client = get_hindsight_client()
+    last_error = "Hindsight reflect failed."
+    for attempt in range(2):
+        future = _executor.submit(client.reflect, bank_id=bank_id, query=incident_text)
+        try:
+            return memory_text(future.result(timeout=HINDSIGHT_TIMEOUT_SECONDS))
+        except FutureTimeout:
+            future.cancel()
+            last_error = f"Hindsight reflect timed out after {HINDSIGHT_TIMEOUT_SECONDS}s."
+        except Exception as exc:
+            last_error = f"Hindsight reflect failed: {exc}"
+        if attempt == 0:
+            time.sleep(1)
+    return last_error
 
 
